@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import {
   ImagePlus,
+  MessageSquareX,
   Menu,
   MessageSquarePlus,
   Mic,
@@ -10,6 +11,7 @@ import {
   Settings,
   SquarePen,
   Sparkles,
+  Trash2,
   Volume2,
   Wand2,
   X
@@ -153,6 +155,45 @@ function App() {
     setSessions(await api.json<SessionItem[]>("/api/sessions"));
   }
 
+  async function deleteSession(sessionId: string, title: string) {
+    if (!window.confirm(`删除会话“${title}”？此操作会删除该会话的历史消息和图片。`)) {
+      return;
+    }
+    setError("");
+    try {
+      const result = await api.json<{ sessions: SessionItem[] }>(`/api/sessions/${sessionId}`, {
+        method: "DELETE"
+      });
+      setSessions(result.sessions);
+      const nextId = sessionId === activeId ? result.sessions[0]?.id || "" : activeId;
+      setActiveId(nextId);
+      if (!nextId) {
+        setMessages([]);
+        setImages([]);
+        setSelectedImages([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除会话失败");
+    }
+  }
+
+  async function clearHistory() {
+    if (!activeId) return;
+    if (!window.confirm("删除当前会话的全部历史消息和图片？会话本身会保留。")) {
+      return;
+    }
+    setError("");
+    try {
+      await api.json(`/api/sessions/${activeId}/history`, { method: "DELETE" });
+      setMessages([]);
+      setImages([]);
+      setSelectedImages([]);
+      await refreshSessions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "删除历史失败");
+    }
+  }
+
   async function uploadFiles(files: FileList | null) {
     if (!files?.length || !activeId) return;
     setUploading(true);
@@ -242,17 +283,28 @@ function App() {
         </button>
         <div className="session-list">
           {sessions.map((session) => (
-            <button
+            <div
               key={session.id}
-              className={`session-item ${session.id === activeId ? "active" : ""}`}
-              onClick={() => {
-                setActiveId(session.id);
-                setSidebarOpen(false);
-              }}
+              className={`session-row ${session.id === activeId ? "active" : ""}`}
             >
-              <span>{session.title}</span>
-              <small>{session.message_count} 条消息 · {session.image_count} 张图</small>
-            </button>
+              <button
+                className="session-item"
+                onClick={() => {
+                  setActiveId(session.id);
+                  setSidebarOpen(false);
+                }}
+              >
+                <span>{session.title}</span>
+                <small>{session.message_count} 条消息 · {session.image_count} 张图</small>
+              </button>
+              <button
+                className="session-delete"
+                onClick={() => void deleteSession(session.id, session.title)}
+                title="删除会话"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
           ))}
         </div>
       </aside>
@@ -261,6 +313,14 @@ function App() {
         <header className="topbar">
           <button className="icon-button" onClick={() => setSidebarOpen(true)} title="会话">
             <Menu size={20} />
+          </button>
+          <button
+            className="icon-button clear-button"
+            onClick={() => void clearHistory()}
+            disabled={!activeId || (!messages.length && !images.length)}
+            title="删除历史对话"
+          >
+            <MessageSquareX size={20} />
           </button>
           <div className="topbar-title">
             <strong>{activeSession?.title || "未命名会话"}</strong>

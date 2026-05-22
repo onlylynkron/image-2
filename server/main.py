@@ -73,6 +73,24 @@ def update_session(session_id: str, payload: dict):
     return session
 
 
+@app.delete("/api/sessions/{session_id}/history")
+def clear_session_history(session_id: str):
+    if not store.clear_session_history(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"ok": True}
+
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(session_id: str):
+    if not store.delete_session(session_id):
+        raise HTTPException(status_code=404, detail="Session not found")
+    sessions = store.list_sessions()
+    if not sessions:
+        store.create_session()
+        sessions = store.list_sessions()
+    return {"ok": True, "sessions": sessions}
+
+
 @app.post("/api/sessions/{session_id}/uploads", status_code=201)
 async def upload_images(session_id: str, images: list[UploadFile] = File(...)):
     if not store.get_session(session_id):

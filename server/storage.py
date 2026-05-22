@@ -48,6 +48,8 @@ class Store(Protocol):
     def add_image(self, **payload) -> ImageAsset: ...
     def find_images(self, ids: list[str]) -> list[ImageAsset]: ...
     def save_image_file(self, content: bytes, ext: str) -> str: ...
+    def clear_session_history(self, session_id: str) -> bool: ...
+    def delete_session(self, session_id: str) -> bool: ...
 
 
 def create_store(config: ServerConfig) -> Store:
@@ -234,6 +236,49 @@ class JsonStore:
         filename = f"{uuid4()}.{ext}"
         self.image_path(filename).write_bytes(content)
         return filename
+
+    def clear_session_history(self, session_id: str) -> bool:
+        db = self.read_db()
+        session = next((item for item in db.sessions if item.id == session_id), None)
+        if not session:
+            return False
+        filenames = [image.filename for image in db.images if image.session_id == session_id]
+        db.messages = [message for message in db.messages if message.session_id != session_id]
+        db.images = [image for image in db.images if image.session_id != session_id]
+        db.sessions = [
+            item.model_copy(
+                update={
+                    "summary": "",
+                    "summary_updated_at": None,
+                    "updated_at": now_iso(),
+                }
+            )
+            if item.id == session_id
+            else item
+            for item in db.sessions
+        ]
+        self.write_db(db)
+        self._delete_local_files(filenames)
+        return True
+
+    def delete_session(self, session_id: str) -> bool:
+        db = self.read_db()
+        if not any(item.id == session_id for item in db.sessions):
+            return False
+        filenames = [image.filename for image in db.images if image.session_id == session_id]
+        db.sessions = [session for session in db.sessions if session.id != session_id]
+        db.messages = [message for message in db.messages if message.session_id != session_id]
+        db.images = [image for image in db.images if image.session_id != session_id]
+        self.write_db(db)
+        self._delete_local_files(filenames)
+        return True
+
+    def _delete_local_files(self, filenames: list[str]) -> None:
+        for filename in filenames:
+            try:
+                self.image_path(filename).unlink()
+            except FileNotFoundError:
+                pass
 
 
 class PostgresStore:
@@ -551,6 +596,48 @@ class PostgresStore:
                     (filename, content, now_iso()),
                 )
         return filename
+
+    def clear_session_history(self, session_id: str) -> bool:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM chat_sessions WHERE id = %s", (session_id,))
+                if not cur.fetchone():
+                    return False
+                cur.execute("SELECT filename FROM image_assets WHERE session_id = %s", (session_id,))
+                filenames = [row["filename"] for row in cur.fetchall()]
+                cur.execute("DELETE FROM chat_messages WHERE session_id = %s", (session_id,))
+                cur.execute("DELETE FROM image_assets WHERE session_id = %s", (session_id,))
+                if filenames:
+                    cur.execute("DELETE FROM image_blobs WHERE filename = ANY(%s)", (filenames,))
+                cur.execute(
+                    """
+                    UPDATE chat_sessions
+                    SET summary = '', summary_updated_at = NULL, updated_at = %s
+                    WHERE id = %s
+                    """,
+                    (now_iso(), session_id),
+                )
+        self._delete_local_files(filenames)
+        return True
+
+    def delete_session(self, session_id: str) -> bool:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT filename FROM image_assets WHERE session_id = %s", (session_id,))
+                filenames = [row["filename"] for row in cur.fetchall()]
+                cur.execute("DELETE FROM image_blobs WHERE filename = ANY(%s)", (filenames,))
+                cur.execute("DELETE FROM chat_sessions WHERE id = %s", (session_id,))
+                deleted = cur.rowcount > 0
+        if deleted:
+            self._delete_local_files(filenames)
+        return deleted
+
+    def _delete_local_files(self, filenames: list[str]) -> None:
+        for filename in filenames:
+            try:
+                self.image_path(filename).unlink()
+            except FileNotFoundError:
+                pass
 
     def _session_model(self, row: dict) -> ChatSession:
         return ChatSession(

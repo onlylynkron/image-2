@@ -68,6 +68,7 @@ button {
 
 .brand-button,
 .new-chat,
+.session-row,
 .session-item,
 .icon-button,
 .send-button,
@@ -110,12 +111,29 @@ button {
   gap: 6px;
 }
 
-.session-item {
+.session-row {
   width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  align-items: center;
+  padding: 0;
+  overflow: hidden;
+}
+
+.session-row.active {
+  border-color: rgba(15, 123, 108, 0.35);
+  background: #e9f5f3;
+}
+
+.session-item {
+  min-width: 0;
   text-align: left;
   padding: 11px;
   display: grid;
   gap: 4px;
+  border: 0;
+  background: transparent;
+  border-radius: 0;
 }
 
 .session-item span {
@@ -130,9 +148,21 @@ button {
   color: var(--muted);
 }
 
-.session-item.active {
-  border-color: rgba(15, 123, 108, 0.35);
-  background: #e9f5f3;
+.session-delete {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.session-delete:hover {
+  color: var(--danger);
+  background: #fff1f0;
 }
 
 .main-panel {
@@ -172,6 +202,15 @@ button {
   display: inline-grid;
   place-items: center;
   background: var(--panel-soft);
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.clear-button {
+  margin-left: -4px;
 }
 
 .conversation {
