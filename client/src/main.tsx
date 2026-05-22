@@ -145,17 +145,26 @@ function writeAuth(auth: AuthState | null) {
   else localStorage.removeItem(AUTH_KEY);
 }
 
+const chatIntentRules = [
+  /(提示词|prompt|文案|说明|解释|分析|怎么|如何|为什么|教程|步骤|建议|帮我写|优化).*?(图|图片|生图|画面|海报|logo|设计图)/i,
+  /(介绍|讲讲|说说|聊聊|解释|说明|分析).*?(图片生成|生图|生成流程|设计图|图片|图像)/i,
+  /(流程|原理|区别|教程|步骤|方法|建议|规范|文档|说明).*?(图片生成|生图|生成图片|图像生成)/i,
+  /(切换|进入).*(生图|图片|image).*模式/i,
+  /(能不能|可以吗|是否).*(生成|画|做).*(图|图片)/i
+];
+
 const imageIntentRules = [
-  /生成.*(图|图片|图像|照片|海报|封面|logo|头像|壁纸)/i,
-  /(画|绘制|出图|做图|生图|制图|渲染)(一|个|张|幅|款|套|下)?/i,
-  /(设计|制作)(一|个|张|幅|款|套).*(图|图片|海报|封面|logo|头像|产品图|效果图)/i,
-  /(修改|编辑|重绘|改成|变成|换背景|去背景|抠图|修图|放大).*(图|图片|照片|这张|上一张)/i,
+  /(生成|生图|出图|画|绘制|渲染|制作|做|设计|创建|生成一张|生成一个).*?(图|图片|图像|照片|海报|封面|logo|头像|壁纸|产品图|展示图|效果图|设计图|渲染图)/i,
+  /(图|图片|图像|照片|海报|封面|logo|头像|壁纸|产品图|展示图|效果图|设计图|渲染图).*?(生成|生图|出图|画|绘制|渲染|制作|做|设计|创建)/i,
+  /(多视角|三视图|正面|背面|侧面|俯视|细节图|爆炸图|产品展示|产品海报|商品图|主图|场景图)/i,
+  /(修改|编辑|重绘|改成|变成|换背景|去背景|抠图|修图|放大).*?(图|图片|照片|这张|上一张)/i,
   /(参考图|用这张|基于这张|上一张图|这张图)/i,
-  /\b(generate|create|draw|make|edit|redraw)\b.*\b(image|picture|photo|poster|logo|avatar)\b/i
+  /\b(generate|create|draw|make|edit|redraw|render)\b.*\b(image|picture|photo|poster|logo|avatar|product)\b/i
 ];
 
 function isImageRequest(content: string, selectedImageCount: number) {
   if (selectedImageCount > 0) return true;
+  if (chatIntentRules.some((rule) => rule.test(content))) return false;
   return imageIntentRules.some((rule) => rule.test(content));
 }
 
@@ -174,12 +183,14 @@ function App() {
   const [uploading, setUploading] = React.useState(false);
   const [generating, setGenerating] = React.useState(false);
   const [chatting, setChatting] = React.useState(false);
+  const [pendingMessageId, setPendingMessageId] = React.useState("");
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [previewImage, setPreviewImage] = React.useState<ImageAsset | null>(null);
   const [error, setError] = React.useState("");
   const [authError, setAuthError] = React.useState("");
   const messagesEndRef = React.useRef<HTMLDivElement | null>(null);
+  const skipNextLoadRef = React.useRef("");
 
   const isLoggedIn = Boolean(auth?.token);
   const activeSession = sessions.find((session) => session.id === activeId);
@@ -194,7 +205,12 @@ function App() {
   }, [auth?.token]);
 
   React.useEffect(() => {
-    if (activeId) void loadSession(activeId);
+    if (!activeId) return;
+    if (skipNextLoadRef.current === activeId) {
+      skipNextLoadRef.current = "";
+      return;
+    }
+    void loadSession(activeId);
   }, [activeId]);
 
   React.useEffect(() => {
@@ -252,6 +268,7 @@ function App() {
         message_count: 0,
         image_count: 0
       };
+      skipNextLoadRef.current = session.id;
       setActiveId(session.id);
       return session.id;
     }
@@ -259,6 +276,7 @@ function App() {
       method: "POST",
       body: JSON.stringify({ title: "未命名会话" })
     }, auth.token);
+    skipNextLoadRef.current = session.id;
     setActiveId(session.id);
     return session.id;
   }
@@ -315,6 +333,10 @@ function App() {
     };
     writeLocalHistory(nextSnapshot);
     setSessions(nextSnapshot.sessions);
+  }
+
+  function replaceMessage(messageId: string, replacement: ChatMessage) {
+    setMessages((items) => items.map((item) => (item.id === messageId ? replacement : item)));
   }
 
   async function submitAuth() {
@@ -464,23 +486,39 @@ function App() {
     setError("");
     const nextPrompt = prompt.trim();
     setPrompt("");
+    let optimisticMessages = messages;
+    let pendingId = "";
+    let sessionId = activeId;
     try {
-      const sessionId = await ensureSession();
+      sessionId = await ensureSession();
+      const userMessage: ChatMessage = {
+        id: createId(),
+        session_id: sessionId,
+        role: "user",
+        content: nextPrompt,
+        image_ids: [],
+        created_at: nowIso()
+      };
+      const pendingMessage: ChatMessage = {
+        id: createId(),
+        session_id: sessionId,
+        role: "assistant",
+        content: "",
+        image_ids: [],
+        created_at: nowIso(),
+        meta: { pending: true }
+      };
+      pendingId = pendingMessage.id;
+      optimisticMessages = [...messages, userMessage, pendingMessage];
+      setMessages(optimisticMessages);
+      setPendingMessageId(pendingId);
       if (!auth?.token) {
-        const userMessage: ChatMessage = {
-          id: createId(),
-          session_id: sessionId,
-          role: "user",
-          content: nextPrompt,
-          image_ids: [],
-          created_at: nowIso()
-        };
         const result = await api.json<{ content: string; meta?: Record<string, unknown> }>("/api/guest/chat", {
           method: "POST",
-          body: JSON.stringify({ content: nextPrompt, messages: [...messages, userMessage] })
+          body: JSON.stringify({ content: nextPrompt, messages: optimisticMessages.filter((message) => !message.meta?.pending) })
         });
         const assistantMessage: ChatMessage = {
-          id: createId(),
+          id: pendingId,
           session_id: sessionId,
           role: "assistant",
           content: result.content,
@@ -488,7 +526,7 @@ function App() {
           created_at: nowIso(),
           meta: result.meta
         };
-        const nextMessages = [...messages, userMessage, assistantMessage];
+        const nextMessages = optimisticMessages.map((message) => (message.id === pendingId ? assistantMessage : message));
         setMessages(nextMessages);
         saveLocalDetail(sessionId, nextMessages, images);
         return;
@@ -500,13 +538,34 @@ function App() {
         method: "POST",
         body: JSON.stringify({ content: nextPrompt })
       }, auth.token);
-      setMessages((items) => [...items, result.userMessage, result.assistantMessage]);
+      replaceMessage(pendingId, result.assistantMessage);
       await refreshSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "回复失败");
-      if (activeId) await loadSession(activeId);
+      if (pendingId) {
+        const failedMessage: ChatMessage = {
+          id: pendingId,
+          session_id: sessionId,
+          role: "assistant",
+          content: err instanceof Error ? `回复失败：${err.message}` : "回复失败",
+          image_ids: [],
+          created_at: nowIso(),
+          meta: { error: true }
+        };
+        replaceMessage(pendingId, failedMessage);
+        if (!auth?.token && sessionId) {
+          saveLocalDetail(
+            sessionId,
+            optimisticMessages.map((message) => (message.id === pendingId ? failedMessage : message)),
+            images
+          );
+        }
+      } else if (activeId) {
+        await loadSession(activeId);
+      }
     } finally {
       setChatting(false);
+      setPendingMessageId("");
     }
   }
 
@@ -516,18 +575,22 @@ function App() {
     setError("");
     const nextPrompt = prompt.trim();
     setPrompt("");
+    let optimisticMessages = messages;
+    let sessionId = activeId;
     try {
-      const sessionId = await ensureSession();
+      sessionId = await ensureSession();
       const sourceImages = images.filter((image) => selectedImages.includes(image.id));
+      const userMessage: ChatMessage = {
+        id: createId(),
+        session_id: sessionId,
+        role: "user",
+        content: nextPrompt,
+        image_ids: selectedImages,
+        created_at: nowIso()
+      };
+      optimisticMessages = [...messages, userMessage];
+      setMessages(optimisticMessages);
       if (!auth?.token) {
-        const userMessage: ChatMessage = {
-          id: createId(),
-          session_id: sessionId,
-          role: "user",
-          content: nextPrompt,
-          image_ids: selectedImages,
-          created_at: nowIso()
-        };
         const result = await api.json<{
           content: string;
           image: ImageAsset;
@@ -555,7 +618,7 @@ function App() {
           created_at: nowIso(),
           meta: result.meta
         };
-        const nextMessages = [...messages, userMessage, assistantMessage];
+        const nextMessages = [...optimisticMessages, assistantMessage];
         const nextImages = [...images, image];
         setMessages(nextMessages);
         setImages(nextImages);
@@ -575,13 +638,23 @@ function App() {
           source_image_ids: selectedImages
         })
       }, auth.token);
-      setMessages((items) => [...items, result.userMessage, result.assistantMessage]);
+      setMessages((items) => [...items, result.assistantMessage]);
       setImages((items) => [...items, result.image]);
       setSelectedImages([result.image.id]);
       await refreshSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成失败");
-      if (activeId) await loadSession(activeId);
+      const failedMessage: ChatMessage = {
+        id: createId(),
+        session_id: sessionId,
+        role: "assistant",
+        content: err instanceof Error ? `生成失败：${err.message}` : "生成失败",
+        image_ids: [],
+        created_at: nowIso(),
+        meta: { error: true }
+      };
+      setMessages([...optimisticMessages, failedMessage]);
+      if (!auth?.token && sessionId) saveLocalDetail(sessionId, [...optimisticMessages, failedMessage], images, options);
     } finally {
       setGenerating(false);
     }
@@ -725,29 +798,37 @@ function App() {
           )}
           {messages.map((message) => (
             <article key={message.id} className={`message ${message.role}`}>
-              <div className="bubble">
-                <p>{message.content}</p>
-                {message.image_ids.length > 0 && (
-                  <div className="message-images">
-                    {message.image_ids.map((id) => {
-                      const image = imageById.get(id);
-                      if (!image) return null;
-                      return (
-                        <button
-                          className={`image-tile ${selectedImages.includes(id) ? "selected" : ""}`}
-                          key={id}
-                          onClick={() => toggleImage(id)}
-                          onDoubleClick={() => openPreview(image)}
-                          title="双击放大"
-                        >
-                          <img src={image.url} alt={image.prompt || image.original_name || "会话图片"} />
-                          <span>{selectedImages.includes(id) ? "已选参考" : "选作参考"}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              {message.meta?.pending ? (
+                <div className="bubble chat-loading" role="status" aria-live="polite">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              ) : (
+                <div className="bubble">
+                  <p>{message.content}</p>
+                  {message.image_ids.length > 0 && (
+                    <div className="message-images">
+                      {message.image_ids.map((id) => {
+                        const image = imageById.get(id);
+                        if (!image) return null;
+                        return (
+                          <button
+                            className={`image-tile ${selectedImages.includes(id) ? "selected" : ""}`}
+                            key={id}
+                            onClick={() => toggleImage(id)}
+                            onDoubleClick={() => openPreview(image)}
+                            title="双击放大"
+                          >
+                            <img src={image.url} alt={image.prompt || image.original_name || "会话图片"} />
+                            <span>{selectedImages.includes(id) ? "已选参考" : "选作参考"}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
             </article>
           ))}
           {generating && (
