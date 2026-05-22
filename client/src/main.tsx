@@ -6,7 +6,6 @@ import {
   Menu,
   MessageSquarePlus,
   Plus,
-  RefreshCw,
   Send,
   Settings,
   Sparkles,
@@ -18,7 +17,6 @@ import "./styles.css";
 type ImageQuality = "auto" | "low" | "medium" | "high";
 type ImageSize = "auto" | "1024x1024" | "1536x1024" | "1024x1536";
 type ImageFormat = "png" | "jpeg" | "webp";
-type SendMode = "chat" | "image";
 
 interface ImageOptions {
   quality: ImageQuality;
@@ -87,6 +85,20 @@ const api = {
   }
 };
 
+const imageIntentRules = [
+  /生成.*(图|图片|图像|照片|海报|封面|logo|头像|壁纸)/i,
+  /(画|绘制|出图|做图|生图|制图|渲染)(一|个|张|幅|款|套|下)?/i,
+  /(设计|制作)(一|个|张|幅|款|套).*(图|图片|海报|封面|logo|头像|产品图|效果图)/i,
+  /(修改|编辑|重绘|改成|变成|换背景|去背景|抠图|修图|放大).*(图|图片|照片|这张|上一张)/i,
+  /(参考图|用这张|基于这张|上一张图|这张图)/i,
+  /\b(generate|create|draw|make|edit|redraw)\b.*\b(image|picture|photo|poster|logo|avatar)\b/i
+];
+
+function isImageRequest(content: string, selectedImageCount: number) {
+  if (selectedImageCount > 0) return true;
+  return imageIntentRules.some((rule) => rule.test(content));
+}
+
 function App() {
   const [sessions, setSessions] = React.useState<SessionItem[]>([]);
   const [activeId, setActiveId] = React.useState("");
@@ -98,7 +110,6 @@ function App() {
   const [uploading, setUploading] = React.useState(false);
   const [generating, setGenerating] = React.useState(false);
   const [chatting, setChatting] = React.useState(false);
-  const [sendMode, setSendMode] = React.useState<SendMode>("chat");
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [previewImage, setPreviewImage] = React.useState<ImageAsset | null>(null);
@@ -218,7 +229,7 @@ function App() {
 
   async function sendMessage() {
     if (!prompt.trim() || !activeId || generating || chatting) return;
-    if (sendMode === "image") {
+    if (isImageRequest(prompt.trim(), selectedImages.length)) {
       await generateImage();
       return;
     }
@@ -369,16 +380,14 @@ function App() {
               {error && <div className="error-line home-error">{error}</div>}
               <div className="home-prompt-card">
                 <PromptBox
-                prompt={prompt}
-                setPrompt={setPrompt}
-                sendMessage={sendMessage}
-                uploadFiles={uploadFiles}
-                uploading={uploading}
-                busy={generating || chatting}
-                sendMode={sendMode}
-                setSendMode={setSendMode}
-                variant="home"
-              />
+                  prompt={prompt}
+                  setPrompt={setPrompt}
+                  sendMessage={sendMessage}
+                  uploadFiles={uploadFiles}
+                  uploading={uploading}
+                  busy={generating || chatting}
+                  variant="home"
+                />
                 <div className="home-hint">
                   <span>支持生成与参考图编辑</span>
                   <span>历史会自动压缩保存</span>
@@ -415,9 +424,12 @@ function App() {
           ))}
           {generating && (
             <article className="message assistant">
-              <div className="bubble loading">
-                <RefreshCw size={17} />
-                正在生成图片...
+              <div className="image-generating-card" role="status" aria-live="polite">
+                <div className="image-generating-pattern" />
+                <div className="image-generating-copy">
+                  <span>正在创建图片</span>
+                  <i />
+                </div>
               </div>
             </article>
           )}
@@ -438,8 +450,6 @@ function App() {
             uploadFiles={uploadFiles}
             uploading={uploading}
             busy={generating || chatting}
-            sendMode={sendMode}
-            setSendMode={setSendMode}
           />
         </footer>}
       </main>
@@ -523,8 +533,6 @@ function PromptBox({
   uploadFiles,
   uploading,
   busy,
-  sendMode,
-  setSendMode,
   variant = "dock"
 }: {
   prompt: string;
@@ -533,8 +541,6 @@ function PromptBox({
   uploadFiles: (files: FileList | null) => void;
   uploading: boolean;
   busy: boolean;
-  sendMode: SendMode;
-  setSendMode: (mode: SendMode) => void;
   variant?: "home" | "dock";
 }) {
   return (
@@ -555,28 +561,12 @@ function PromptBox({
           placeholder="有问题，尽管问"
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void sendMessage();
-          }
-        }}
-      />
-      </div>
-      <div className="mode-switch" aria-label="发送模式">
-        <button
-          type="button"
-          className={sendMode === "chat" ? "active" : ""}
-          onClick={() => setSendMode("chat")}
-        >
-          对话
-        </button>
-        <button
-          type="button"
-          className={sendMode === "image" ? "active" : ""}
-          onClick={() => setSendMode("image")}
-        >
-          生图
-        </button>
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void sendMessage();
+            }
+          }}
+        />
       </div>
       <button
         className="send-button"

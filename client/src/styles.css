@@ -329,6 +329,61 @@ button {
   animation: spin 1s linear infinite;
 }
 
+.image-generating-card {
+  position: relative;
+  width: min(480px, calc(100vw - 340px));
+  max-width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 28px;
+  background: #f3f4f4;
+  border: 1px solid #eceeef;
+  box-shadow: 0 14px 35px rgba(15, 26, 38, 0.08);
+}
+
+.image-generating-pattern {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(22, 25, 28, 0.18) 0 3px, transparent 3.5px);
+  background-size: 28px 28px;
+  mask-image:
+    radial-gradient(circle at 30% 36%, #000 0 34%, rgba(0, 0, 0, 0.72) 48%, transparent 74%),
+    linear-gradient(90deg, transparent 0, #000 18%, #000 72%, transparent 100%);
+  animation: patternDrift 2.4s ease-in-out infinite alternate;
+}
+
+.image-generating-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0) 42%, rgba(255, 255, 255, 0.7) 100%),
+    radial-gradient(circle at 50% 62%, rgba(255, 255, 255, 0.84) 0 16%, transparent 42%);
+}
+
+.image-generating-copy {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 34px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: #5d646d;
+  font-size: 15px;
+}
+
+.image-generating-copy i {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #cbd1d7;
+  border-top-color: #24282d;
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
 .message-images {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
@@ -501,31 +556,6 @@ button {
   border-radius: 999px;
 }
 
-.mode-switch {
-  display: inline-grid;
-  grid-template-columns: repeat(2, auto);
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--panel-soft);
-}
-
-.mode-switch button {
-  min-width: 44px;
-  height: 28px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.mode-switch button.active {
-  background: #080808;
-  color: #fff;
-}
-
 .upload-button input {
   display: none;
 }
@@ -658,6 +688,18 @@ button {
   }
 }
 
+@keyframes patternDrift {
+  from {
+    transform: translate3d(-6px, -4px, 0) scale(1);
+    opacity: 0.84;
+  }
+
+  to {
+    transform: translate3d(8px, 6px, 0) scale(1.02);
+    opacity: 1;
+  }
+}
+
 @media (max-width: 1080px) {
   .app-shell {
     grid-template-columns: minmax(0, 1fr);
@@ -703,6 +745,10 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .image-generating-card {
+    width: min(420px, 100%);
+  }
+
   .composer-wrap {
     padding: 8px 8px 12px;
   }
@@ -712,11 +758,6 @@ button {
     gap: 6px;
     min-height: 54px;
     padding: 6px 7px 6px 12px;
-  }
-
-  .mode-switch {
-    grid-column: 1 / -1;
-    justify-self: center;
   }
 
   .home-state {
