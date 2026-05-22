@@ -23,6 +23,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  overflow-x: hidden;
 }
 
 button,
@@ -40,6 +41,8 @@ button {
   display: grid;
   grid-template-columns: 280px minmax(0, 1fr);
   min-height: 100vh;
+  width: 100%;
+  overflow-x: hidden;
   background: var(--bg);
 }
 
@@ -247,6 +250,7 @@ button {
 .main-panel {
   display: grid;
   grid-template-rows: 64px minmax(0, 1fr) auto;
+  width: 100%;
   min-width: 0;
   max-height: 100vh;
 }
@@ -294,6 +298,7 @@ button {
 
 .conversation {
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 32px clamp(14px, 4vw, 46px) 28px;
 }
 
@@ -358,7 +363,9 @@ button {
 .message {
   display: flex;
   margin: 0 auto 22px;
+  width: min(920px, 100%);
   max-width: 920px;
+  min-width: 0;
 }
 
 .message.user {
@@ -425,6 +432,7 @@ button {
 .bubble {
   width: fit-content;
   max-width: min(760px, 100%);
+  min-width: 0;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -434,6 +442,7 @@ button {
 
 .bubble p {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   margin: 0;
   line-height: 1.65;
 }
@@ -996,10 +1005,22 @@ button {
     top: 0;
     bottom: 0;
     width: min(86vw, 340px);
+    max-width: 340px;
     z-index: 10;
-    transform: translateX(-105%);
     transition: transform 180ms ease;
     box-shadow: var(--shadow);
+  }
+
+  .sidebar {
+    left: 0;
+    right: auto;
+    transform: translateX(-105%);
+  }
+
+  .settings-panel {
+    left: auto;
+    right: 0;
+    transform: translateX(105%);
   }
 
   .sidebar.is-open,
@@ -1014,8 +1035,53 @@ button {
 }
 
 @media (max-width: 640px) {
+  body {
+    width: 100%;
+  }
+
+  .app-shell,
+  .main-panel {
+    width: 100%;
+    max-width: 100vw;
+  }
+
+  .sidebar,
+  .settings-panel {
+    width: min(82vw, 300px);
+    padding: 14px;
+  }
+
+  .settings-panel {
+    right: 0;
+    left: auto;
+  }
+
   .topbar {
-    padding: 0 10px;
+    grid-template-columns: 38px 38px minmax(0, 1fr) 38px;
+    display: grid;
+    gap: 6px;
+    padding: 0 8px;
+  }
+
+  .topbar-title {
+    min-width: 0;
+  }
+
+  .topbar-title strong {
+    font-size: 16px;
+  }
+
+  .topbar-title span {
+    font-size: 13px;
+  }
+
+  .icon-button {
+    width: 38px;
+    height: 38px;
+  }
+
+  .clear-button {
+    margin-left: 0;
   }
 
   .conversation {
@@ -1023,15 +1089,36 @@ button {
   }
 
   .message {
+    width: 100%;
     max-width: 100%;
+    margin-bottom: 18px;
+  }
+
+  .bubble {
+    max-width: min(100%, calc(100vw - 20px));
+  }
+
+  .message.image-edit-request .bubble {
+    max-width: min(320px, 100%);
+  }
+
+  .message.image-edit-request .bubble p {
+    max-width: 100%;
+    text-align: left;
   }
 
   .message-images {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .image-bubble,
+  .image-result {
+    max-width: min(320px, 100%);
+    width: min(320px, 100%);
+  }
+
   .image-generating-card {
-    width: min(360px, 100%);
+    width: min(320px, 100%);
   }
 
   .composer-wrap {
