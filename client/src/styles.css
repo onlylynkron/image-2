@@ -72,7 +72,6 @@ button {
 .icon-button,
 .send-button,
 .upload-button,
-.save-config,
 .image-tile,
 .reference-strip button {
   border: 1px solid var(--line);
@@ -371,21 +370,18 @@ button {
   font-size: 14px;
 }
 
-.panel-head h2,
-.config-box h2 {
+.panel-head h2 {
   font-size: 16px;
   margin: 0;
 }
 
-.control-group,
-.config-box {
+.control-group {
   display: grid;
   gap: 8px;
   margin-top: 18px;
 }
 
-.control-group select,
-.config-box input {
+.control-group select {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -415,13 +411,6 @@ button {
   background: var(--panel);
   color: var(--text);
   box-shadow: 0 1px 4px rgba(16, 42, 67, 0.12);
-}
-
-.save-config {
-  padding: 11px;
-  background: var(--accent);
-  color: white;
-  border-color: var(--accent);
 }
 
 .desktop-hidden,

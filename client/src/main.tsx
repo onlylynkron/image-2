@@ -1,11 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Download,
   ImagePlus,
   Menu,
   MessageSquarePlus,
-  PanelRightOpen,
   RefreshCw,
   Send,
   Settings,
@@ -61,14 +59,6 @@ interface ImageAsset {
   options?: ImageOptions;
 }
 
-interface PublicConfig {
-  base_url: string;
-  image_model: string;
-  text_model: string;
-  has_api_key: boolean;
-  storage_backend: string;
-}
-
 const defaultOptions: ImageOptions = {
   quality: "auto",
   size: "1024x1024",
@@ -101,13 +91,6 @@ function App() {
   const [images, setImages] = React.useState<ImageAsset[]>([]);
   const [prompt, setPrompt] = React.useState("");
   const [options, setOptions] = React.useState<ImageOptions>(defaultOptions);
-  const [config, setConfig] = React.useState<PublicConfig | null>(null);
-  const [configDraft, setConfigDraft] = React.useState({
-    api_key: "",
-    base_url: "",
-    image_model: "gpt-image-2",
-    text_model: "gpt-5.2"
-  });
   const [selectedImages, setSelectedImages] = React.useState<string[]>([]);
   const [uploading, setUploading] = React.useState(false);
   const [generating, setGenerating] = React.useState(false);
@@ -135,18 +118,8 @@ function App() {
   }, [messages.length, generating]);
 
   async function bootstrap() {
-    const [sessionList, publicConfig] = await Promise.all([
-      api.json<SessionItem[]>("/api/sessions"),
-      api.json<PublicConfig>("/api/config")
-    ]);
+    const sessionList = await api.json<SessionItem[]>("/api/sessions");
     setSessions(sessionList);
-    setConfig(publicConfig);
-    setConfigDraft({
-      api_key: "",
-      base_url: publicConfig.base_url || "",
-      image_model: publicConfig.image_model || "gpt-image-2",
-      text_model: publicConfig.text_model || "gpt-5.2"
-    });
     if (sessionList[0]) setActiveId(sessionList[0].id);
   }
 
@@ -228,16 +201,6 @@ function App() {
     }
   }
 
-  async function saveConfig() {
-    const updated = await api.json<PublicConfig>("/api/config", {
-      method: "PUT",
-      body: JSON.stringify(configDraft)
-    });
-    setConfig(updated);
-    setConfigDraft((draft) => ({ ...draft, api_key: "" }));
-    setSettingsOpen(false);
-  }
-
   function toggleImage(id: string) {
     setSelectedImages((ids) =>
       ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]
@@ -284,16 +247,10 @@ function App() {
           </button>
           <div className="topbar-title">
             <strong>{activeSession?.title || "图像会话"}</strong>
-            <span>
-              {config?.has_api_key ? config.image_model : "未配置 API Key"}
-              {config?.storage_backend ? ` · ${config.storage_backend}` : ""}
-            </span>
+            <span>独立上下文 · 本地历史</span>
           </div>
-          <button className="icon-button" onClick={() => setSettingsOpen(true)} title="设置">
+          <button className="icon-button" onClick={() => setSettingsOpen(true)} title="生成参数">
             <Settings size={20} />
-          </button>
-          <button className="icon-button desktop-hidden" onClick={() => setSettingsOpen(true)} title="参数">
-            <PanelRightOpen size={20} />
           </button>
         </header>
 
@@ -428,33 +385,6 @@ function App() {
             }
           />
         </ControlGroup>
-        <div className="config-box">
-          <h2>服务端配置</h2>
-          <input
-            type="password"
-            placeholder={config?.has_api_key ? "已保存 API Key，留空不修改" : "OpenAI API Key"}
-            value={configDraft.api_key}
-            onChange={(event) => setConfigDraft((draft) => ({ ...draft, api_key: event.target.value }))}
-          />
-          <input
-            placeholder="Base URL，可选"
-            value={configDraft.base_url}
-            onChange={(event) => setConfigDraft((draft) => ({ ...draft, base_url: event.target.value }))}
-          />
-          <input
-            placeholder="图像模型"
-            value={configDraft.image_model}
-            onChange={(event) => setConfigDraft((draft) => ({ ...draft, image_model: event.target.value }))}
-          />
-          <input
-            placeholder="压缩摘要模型"
-            value={configDraft.text_model}
-            onChange={(event) => setConfigDraft((draft) => ({ ...draft, text_model: event.target.value }))}
-          />
-          <button className="save-config" onClick={() => void saveConfig()}>
-            保存配置
-          </button>
-        </div>
       </aside>
     </div>
   );

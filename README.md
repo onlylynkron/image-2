@@ -23,14 +23,14 @@ npm run dev
 
 前端默认打开 `http://localhost:5173`，Python 后端默认运行在 `http://localhost:8787`。
 
-也可以在页面右上角的设置面板里填写 API Key、Base URL 和模型名，配置会保存在本地 `data/server-config.json`。
+API Key、Base URL 和模型名只在服务端配置，不在前端页面展示。
 
 ## 数据目录
 
 默认数据保存在 `data/`：
 
 - `db.json`：会话、消息、图片资产和用户配置
-- `server-config.json`：服务端 API 与模型配置
+- `server-config.json`：服务端 API 与模型配置，仅服务端使用
 - `images/`：生成图片和上传原图
 
 ## PostgreSQL
