@@ -17,6 +17,7 @@ import "./styles.css";
 type ImageQuality = "auto" | "low" | "medium" | "high";
 type ImageSize = "auto" | "1024x1024" | "1536x1024" | "1024x1536";
 type ImageFormat = "png" | "jpeg" | "webp";
+type SendMode = "chat" | "image";
 
 interface ImageOptions {
   quality: ImageQuality;
@@ -95,6 +96,8 @@ function App() {
   const [selectedImages, setSelectedImages] = React.useState<string[]>([]);
   const [uploading, setUploading] = React.useState(false);
   const [generating, setGenerating] = React.useState(false);
+  const [chatting, setChatting] = React.useState(false);
+  const [sendMode, setSendMode] = React.useState<SendMode>("chat");
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [error, setError] = React.useState("");
@@ -211,7 +214,35 @@ function App() {
     }
   }
 
-  async function generate() {
+  async function sendMessage() {
+    if (!prompt.trim() || !activeId || generating || chatting) return;
+    if (sendMode === "image") {
+      await generateImage();
+      return;
+    }
+    setChatting(true);
+    setError("");
+    const nextPrompt = prompt.trim();
+    setPrompt("");
+    try {
+      const result = await api.json<{
+        userMessage: ChatMessage;
+        assistantMessage: ChatMessage;
+      }>(`/api/sessions/${activeId}/chat`, {
+        method: "POST",
+        body: JSON.stringify({ content: nextPrompt })
+      });
+      setMessages((items) => [...items, result.userMessage, result.assistantMessage]);
+      await refreshSessions();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "回复失败");
+      await loadSession(activeId);
+    } finally {
+      setChatting(false);
+    }
+  }
+
+  async function generateImage() {
     if (!prompt.trim() || !activeId || generating) return;
     setGenerating(true);
     setError("");
@@ -328,14 +359,16 @@ function App() {
               {error && <div className="error-line home-error">{error}</div>}
               <div className="home-prompt-card">
                 <PromptBox
-                  prompt={prompt}
-                  setPrompt={setPrompt}
-                  generate={generate}
-                  uploadFiles={uploadFiles}
-                  uploading={uploading}
-                  generating={generating}
-                  variant="home"
-                />
+                prompt={prompt}
+                setPrompt={setPrompt}
+                sendMessage={sendMessage}
+                uploadFiles={uploadFiles}
+                uploading={uploading}
+                busy={generating || chatting}
+                sendMode={sendMode}
+                setSendMode={setSendMode}
+                variant="home"
+              />
                 <div className="home-hint">
                   <span>支持生成与参考图编辑</span>
                   <span>历史会自动压缩保存</span>
@@ -389,10 +422,12 @@ function App() {
           <PromptBox
             prompt={prompt}
             setPrompt={setPrompt}
-            generate={generate}
+            sendMessage={sendMessage}
             uploadFiles={uploadFiles}
             uploading={uploading}
-            generating={generating}
+            busy={generating || chatting}
+            sendMode={sendMode}
+            setSendMode={setSendMode}
           />
         </footer>}
       </main>
@@ -449,18 +484,22 @@ function App() {
 function PromptBox({
   prompt,
   setPrompt,
-  generate,
+  sendMessage,
   uploadFiles,
   uploading,
-  generating,
+  busy,
+  sendMode,
+  setSendMode,
   variant = "dock"
 }: {
   prompt: string;
   setPrompt: (prompt: string) => void;
-  generate: () => void;
+  sendMessage: () => void;
   uploadFiles: (files: FileList | null) => void;
   uploading: boolean;
-  generating: boolean;
+  busy: boolean;
+  sendMode: SendMode;
+  setSendMode: (mode: SendMode) => void;
   variant?: "home" | "dock";
 }) {
   return (
@@ -472,7 +511,7 @@ function PromptBox({
           accept="image/png,image/jpeg,image/webp"
           multiple
           onChange={(event) => void uploadFiles(event.target.files)}
-          disabled={uploading || generating}
+          disabled={uploading || busy}
         />
       </label>
       <div className="prompt-field">
@@ -481,17 +520,33 @@ function PromptBox({
           placeholder="有问题，尽管问"
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void generate();
-            }
-          }}
-        />
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            void sendMessage();
+          }
+        }}
+      />
+      </div>
+      <div className="mode-switch" aria-label="发送模式">
+        <button
+          type="button"
+          className={sendMode === "chat" ? "active" : ""}
+          onClick={() => setSendMode("chat")}
+        >
+          对话
+        </button>
+        <button
+          type="button"
+          className={sendMode === "image" ? "active" : ""}
+          onClick={() => setSendMode("image")}
+        >
+          生图
+        </button>
       </div>
       <button
         className="send-button"
-        disabled={!prompt.trim() || generating}
-        onClick={() => void generate()}
+        disabled={!prompt.trim() || busy}
+        onClick={() => void sendMessage()}
         title="发送"
       >
         <Send size={19} />
