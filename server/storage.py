@@ -141,7 +141,7 @@ class JsonStore:
     def list_sessions(self) -> list[dict]:
         db = self.read_db()
         sessions = sorted(db.sessions, key=lambda item: item.updated_at, reverse=True)
-        return [
+        session_items = [
             {
                 **session.model_dump(),
                 "message_count": len([m for m in db.messages if m.session_id == session.id]),
@@ -149,6 +149,7 @@ class JsonStore:
             }
             for session in sessions
         ]
+        return [item for item in session_items if item["message_count"] > 0 or item["image_count"] > 0]
 
     def create_session(self, title: str = DEFAULT_SESSION_TITLE) -> ChatSession:
         db = self.read_db()
@@ -411,6 +412,7 @@ class PostgresStore:
                     LEFT JOIN chat_messages m ON m.session_id = s.id
                     LEFT JOIN image_assets i ON i.session_id = s.id
                     GROUP BY s.id
+                    HAVING COUNT(DISTINCT m.id) > 0 OR COUNT(DISTINCT i.id) > 0
                     ORDER BY s.updated_at DESC
                     """
                 )

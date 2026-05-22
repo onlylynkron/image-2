@@ -138,7 +138,7 @@ function App() {
   async function bootstrap() {
     const sessionList = await api.json<SessionItem[]>("/api/sessions");
     setSessions(sessionList);
-    if (sessionList[0]) setActiveId(sessionList[0].id);
+    setActiveId(sessionList[0]?.id || "");
   }
 
   async function loadSession(id: string) {
@@ -153,13 +153,24 @@ function App() {
     setSelectedImages([]);
   }
 
-  async function createSession() {
+  async function ensureSession() {
+    if (activeId) return activeId;
     const session = await api.json<SessionItem>("/api/sessions", {
       method: "POST",
       body: JSON.stringify({ title: "未命名会话" })
     });
-    setSessions((items) => [session, ...items]);
     setActiveId(session.id);
+    return session.id;
+  }
+
+  function createSession() {
+    setActiveId("");
+    setMessages([]);
+    setImages([]);
+    setSelectedImages([]);
+    setPrompt("");
+    setError("");
+    setOptions(defaultOptions);
     setSidebarOpen(false);
   }
 
@@ -207,13 +218,14 @@ function App() {
   }
 
   async function uploadFiles(files: FileList | null) {
-    if (!files?.length || !activeId) return;
+    if (!files?.length) return;
     setUploading(true);
     setError("");
     try {
+      const sessionId = await ensureSession();
       const form = new FormData();
       Array.from(files).slice(0, 6).forEach((file) => form.append("images", file));
-      const uploaded = await api.json<ImageAsset[]>(`/api/sessions/${activeId}/uploads`, {
+      const uploaded = await api.json<ImageAsset[]>(`/api/sessions/${sessionId}/uploads`, {
         method: "POST",
         body: form
       });
@@ -228,7 +240,7 @@ function App() {
   }
 
   async function sendMessage() {
-    if (!prompt.trim() || !activeId || generating || chatting) return;
+    if (!prompt.trim() || generating || chatting) return;
     if (isImageRequest(prompt.trim(), selectedImages.length)) {
       await generateImage();
       return;
@@ -238,10 +250,11 @@ function App() {
     const nextPrompt = prompt.trim();
     setPrompt("");
     try {
+      const sessionId = await ensureSession();
       const result = await api.json<{
         userMessage: ChatMessage;
         assistantMessage: ChatMessage;
-      }>(`/api/sessions/${activeId}/chat`, {
+      }>(`/api/sessions/${sessionId}/chat`, {
         method: "POST",
         body: JSON.stringify({ content: nextPrompt })
       });
@@ -249,24 +262,25 @@ function App() {
       await refreshSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "回复失败");
-      await loadSession(activeId);
+      if (activeId) await loadSession(activeId);
     } finally {
       setChatting(false);
     }
   }
 
   async function generateImage() {
-    if (!prompt.trim() || !activeId || generating) return;
+    if (!prompt.trim() || generating) return;
     setGenerating(true);
     setError("");
     const nextPrompt = prompt.trim();
     setPrompt("");
     try {
+      const sessionId = await ensureSession();
       const result = await api.json<{
         userMessage: ChatMessage;
         assistantMessage: ChatMessage;
         image: ImageAsset;
-      }>(`/api/sessions/${activeId}/generate`, {
+      }>(`/api/sessions/${sessionId}/generate`, {
         method: "POST",
         body: JSON.stringify({
           prompt: nextPrompt,
@@ -280,7 +294,7 @@ function App() {
       await refreshSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成失败");
-      await loadSession(activeId);
+      if (activeId) await loadSession(activeId);
     } finally {
       setGenerating(false);
     }

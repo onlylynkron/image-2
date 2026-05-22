@@ -47,11 +47,7 @@ def update_config(patch: ServerConfigPatch):
 
 @app.get("/api/sessions")
 def list_sessions():
-    sessions = store.list_sessions()
-    if not sessions:
-        store.create_session()
-        sessions = store.list_sessions()
-    return sessions
+    return store.list_sessions()
 
 
 @app.post("/api/sessions", status_code=201)
@@ -86,11 +82,7 @@ def clear_session_history(session_id: str):
 def delete_session(session_id: str):
     if not store.delete_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
-    sessions = store.list_sessions()
-    if not sessions:
-        store.create_session()
-        sessions = store.list_sessions()
-    return {"ok": True, "sessions": sessions}
+    return {"ok": True, "sessions": store.list_sessions()}
 
 
 @app.post("/api/sessions/{session_id}/uploads", status_code=201)
