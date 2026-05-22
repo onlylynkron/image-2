@@ -319,17 +319,30 @@ function App() {
         <section className="conversation">
           {!hasMessages && (
             <div className="home-state">
-              <h1>准备好了，随时开始</h1>
+              <div className="home-brand">
+                <Sparkles size={18} />
+                <span>Image2 Studio</span>
+              </div>
+              <div className="home-copy">
+                <h1>把想法变成图像</h1>
+                <p>描述画面、上传参考图，或继续编辑上一张作品。</p>
+              </div>
               {error && <div className="error-line home-error">{error}</div>}
-              <PromptBox
-                prompt={prompt}
-                setPrompt={setPrompt}
-                generate={generate}
-                uploadFiles={uploadFiles}
-                uploading={uploading}
-                generating={generating}
-                variant="home"
-              />
+              <div className="home-prompt-card">
+                <PromptBox
+                  prompt={prompt}
+                  setPrompt={setPrompt}
+                  generate={generate}
+                  uploadFiles={uploadFiles}
+                  uploading={uploading}
+                  generating={generating}
+                  variant="home"
+                />
+                <div className="home-hint">
+                  <span>支持生成与参考图编辑</span>
+                  <span>历史会自动压缩保存</span>
+                </div>
+              </div>
             </div>
           )}
           {messages.map((message) => (
