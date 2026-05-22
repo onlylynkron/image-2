@@ -15,6 +15,7 @@ export default defineConfig({
   build: {
     outDir: "dist/client",
     emptyOutDir: true,
+    assetsDir: "app-assets",
     rollupOptions: {
       input: {
         index: resolve(__dirname, "index.html")
