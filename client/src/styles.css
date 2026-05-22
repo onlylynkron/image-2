@@ -30,9 +30,9 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #111315;
-  --panel: #191c20;
-  --panel-soft: #252a30;
+  --bg: #17171a;
+  --panel: #202024;
+  --panel-soft: #2a2a30;
   --text: #eef2f6;
   --muted: #9aa4af;
   --line: #30363d;
@@ -40,16 +40,16 @@
   --accent-strong: #7bdbc9;
   --danger: #ff8f86;
   --shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
-  --topbar-bg: rgba(17, 19, 21, 0.88);
-  --auth-bg: #15181c;
+  --topbar-bg: rgba(23, 23, 26, 0.88);
+  --auth-bg: #1c1c20;
   --active-bg: rgba(69, 192, 174, 0.14);
   --user-bubble: #1f4d47;
   --edit-bubble: #24282d;
   --button-dark: #eef2f6;
   --button-dark-text: #101214;
-  --composer-fade: rgba(17, 19, 21, 0);
-  --image-card-bg: #181b1f;
-  --generated-card-bg: #191d22;
+  --composer-fade: rgba(23, 23, 26, 0);
+  --image-card-bg: #1f1f24;
+  --generated-card-bg: #202024;
   --danger-bg: rgba(255, 143, 134, 0.14);
   --hover-bg: #242a31;
   --pill-bg: rgba(25, 28, 32, 0.8);
