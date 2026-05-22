@@ -8,6 +8,15 @@ import httpx
 
 from .models import GeneratePayload, ImageAsset, ServerConfig
 
+ASPECT_RATIO_SIZE_MAP = {
+    "auto": "auto",
+    "1:1": "1024x1024",
+    "21:9": "1536x1024",
+    "16:9": "1536x1024",
+    "3:2": "1536x1024",
+    "4:3": "1536x1024",
+}
+
 
 def _mime_for_format(fmt: str) -> str:
     return {"jpeg": "image/jpeg", "webp": "image/webp"}.get(fmt, "image/png")
@@ -18,7 +27,7 @@ def _ext_for_format(fmt: str) -> str:
 
 
 def infer_image_count(prompt: str, requested_count: int | None = None) -> int:
-    if requested_count:
+    if requested_count and requested_count > 1:
         return max(1, min(4, requested_count))
 
     text = prompt.lower()
@@ -49,7 +58,27 @@ def infer_image_count(prompt: str, requested_count: int | None = None) -> int:
         "several",
         "variations",
     ]
-    return 4 if any(hint in text for hint in multi_hints) else 1
+    return 4 if any(hint in text for hint in multi_hints) else max(1, min(4, requested_count or 1))
+
+
+def image_size_for_options(payload: GeneratePayload) -> str:
+    if payload.options.size != "auto":
+        return payload.options.size
+    return ASPECT_RATIO_SIZE_MAP.get(payload.options.aspect_ratio, "auto")
+
+
+def build_generation_constraints(payload: GeneratePayload) -> str:
+    constraints = [
+        f"Aspect ratio: {payload.options.aspect_ratio}",
+        f"Resolution target: {payload.options.resolution}",
+        f"Quality: {payload.options.quality}",
+        f"Output format: {payload.options.format}",
+    ]
+    if payload.options.aspect_ratio != "auto":
+        constraints.append("Compose the image to match the requested aspect ratio.")
+    if payload.options.resolution != "1K":
+        constraints.append(f"Render with {payload.options.resolution} level detail and clarity.")
+    return "\n".join(constraints)
 
 
 def request_image(
@@ -63,6 +92,7 @@ def request_image(
         part
         for part in [
             f"上下文参考:\n{prompt_context}" if prompt_context else "",
+            f"生成参数:\n{build_generation_constraints(payload)}",
             f"当前请求:\n{payload.prompt}",
         ]
         if part
@@ -71,10 +101,10 @@ def request_image(
         "model": config.image_model,
         "prompt": prompt,
         "quality": payload.options.quality,
-        "size": payload.options.size,
+        "size": image_size_for_options(payload),
         "output_format": payload.options.format,
     }
-    image_count = infer_image_count(payload.prompt, payload.image_count)
+    image_count = infer_image_count(payload.prompt, payload.image_count or payload.options.image_count)
     if image_count > 1:
         body["n"] = image_count
     if payload.options.format != "png":
@@ -132,12 +162,3 @@ def decode_image_results(result, fmt: str) -> list[tuple[bytes, str, str, str | 
 def decode_image_result(result, fmt: str) -> tuple[bytes, str, str, str | None]:
     data = decode_image_results(result, fmt)[0]
     return data
-    b64 = data.get("b64_json") if data else None
-    if not b64:
-        raise RuntimeError("OpenAI image response did not include base64 image data.")
-    return (
-        base64.b64decode(b64),
-        _mime_for_format(fmt),
-        _ext_for_format(fmt),
-        data.get("revised_prompt"),
-    )

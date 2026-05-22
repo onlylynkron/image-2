@@ -22,10 +22,15 @@ import "./styles.css";
 type ImageQuality = "auto" | "low" | "medium" | "high";
 type ImageSize = "auto" | "1024x1024" | "1536x1024" | "1024x1536";
 type ImageFormat = "png" | "jpeg" | "webp";
+type ImageAspectRatio = "auto" | "1:1" | "21:9" | "16:9" | "3:2" | "4:3";
+type ImageResolution = "1K" | "2K" | "4K";
 
 interface ImageOptions {
   quality: ImageQuality;
   size: ImageSize;
+  aspect_ratio: ImageAspectRatio;
+  resolution: ImageResolution;
+  image_count: number;
   format: ImageFormat;
   compression: number;
 }
@@ -83,10 +88,17 @@ interface LocalSnapshot {
 
 const defaultOptions: ImageOptions = {
   quality: "high",
-  size: "1024x1024",
+  size: "auto",
+  aspect_ratio: "auto",
+  resolution: "1K",
+  image_count: 1,
   format: "png",
   compression: 85
 };
+
+function normalizeOptions(options?: Partial<ImageOptions> | null): ImageOptions {
+  return { ...defaultOptions, ...(options || {}) };
+}
 
 const LOCAL_HISTORY_KEY = "image2.localHistory.v1";
 const AUTH_KEY = "image2.auth.v1";
@@ -284,7 +296,7 @@ function App() {
       if (!detail) return;
       setMessages(mergePendingMessages(detail.messages, id));
       setImages(detail.images);
-      setOptions(detail.session.options || defaultOptions);
+      setOptions(normalizeOptions(detail.session.options));
       setSelectedImages([]);
       return;
     }
@@ -295,7 +307,7 @@ function App() {
     }>(`/api/sessions/${id}`, undefined, auth.token);
     setMessages(mergePendingMessages(detail.messages, id));
     setImages(detail.images);
-    setOptions(detail.session.options || defaultOptions);
+    setOptions(normalizeOptions(detail.session.options));
     setSelectedImages([]);
   }
 
@@ -664,6 +676,7 @@ function App() {
           body: JSON.stringify({
             prompt: nextPrompt,
             options,
+            image_count: options.image_count,
             source_images: sourceImages.map((image) => ({
               id: image.id,
               filename: image.filename,
@@ -705,6 +718,7 @@ function App() {
         body: JSON.stringify({
           prompt: nextPrompt,
           options,
+          image_count: options.image_count,
           source_image_ids: sourceImageIds
         })
       }, auth.token);
@@ -1057,6 +1071,64 @@ function App() {
             <X size={18} />
           </button>
         </div>
+        <ControlGroup label="图片尺寸">
+          <div className="option-grid aspect-grid">
+            {[
+              { value: "auto", label: "自动", shape: "auto" },
+              { value: "1:1", label: "1:1", shape: "square" },
+              { value: "21:9", label: "21:9", shape: "wide" },
+              { value: "16:9", label: "16:9", shape: "wide" },
+              { value: "3:2", label: "3:2", shape: "photo" },
+              { value: "4:3", label: "4:3", shape: "classic" }
+            ].map((item) => (
+              <button
+                key={item.value}
+                className={options.aspect_ratio === item.value ? "active" : ""}
+                onClick={() =>
+                  setOptions((current) => ({
+                    ...current,
+                    aspect_ratio: item.value as ImageAspectRatio,
+                    size:
+                      item.value === "1:1"
+                        ? "1024x1024"
+                        : item.value === "auto"
+                          ? "auto"
+                          : "1536x1024"
+                  }))
+                }
+              >
+                <i className={`ratio-icon ${item.shape}`} />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+        </ControlGroup>
+        <ControlGroup label="分辨率">
+          <div className="option-grid resolution-grid">
+            {["1K", "2K", "4K"].map((resolution) => (
+              <button
+                key={resolution}
+                className={options.resolution === resolution ? "active" : ""}
+                onClick={() => setOptions((current) => ({ ...current, resolution: resolution as ImageResolution }))}
+              >
+                {resolution}
+              </button>
+            ))}
+          </div>
+        </ControlGroup>
+        <ControlGroup label="图片数量">
+          <div className="option-grid count-grid">
+            {[1, 2, 3, 4].map((count) => (
+              <button
+                key={count}
+                className={options.image_count === count ? "active" : ""}
+                onClick={() => setOptions((current) => ({ ...current, image_count: count }))}
+              >
+                {count}
+              </button>
+            ))}
+          </div>
+        </ControlGroup>
         <ControlGroup label="画质">
           <Segmented
             value={options.quality}
@@ -1064,7 +1136,7 @@ function App() {
             onChange={(quality) => setOptions((item) => ({ ...item, quality: quality as ImageQuality }))}
           />
         </ControlGroup>
-        <ControlGroup label="大小">
+        <ControlGroup label="API 尺寸">
           <select
             value={options.size}
             onChange={(event) => setOptions((item) => ({ ...item, size: event.target.value as ImageSize }))}

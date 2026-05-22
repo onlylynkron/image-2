@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 ImageQuality = Literal["auto", "low", "medium", "high"]
 ImageSize = Literal["auto", "1024x1024", "1536x1024", "1024x1536"]
 ImageFormat = Literal["png", "jpeg", "webp"]
+ImageAspectRatio = Literal["auto", "1:1", "21:9", "16:9", "3:2", "4:3"]
+ImageResolution = Literal["1K", "2K", "4K"]
 MessageRole = Literal["user", "assistant", "system"]
 
 
@@ -47,7 +49,10 @@ class UserProfile(BaseModel):
 
 class ImageOptions(BaseModel):
     quality: ImageQuality = "high"
-    size: ImageSize = "1024x1024"
+    size: ImageSize = "auto"
+    aspect_ratio: ImageAspectRatio = "auto"
+    resolution: ImageResolution = "1K"
+    image_count: int = Field(default=1, ge=1, le=4)
     format: ImageFormat = "png"
     compression: int = Field(default=85, ge=0, le=100)
 
