@@ -363,7 +363,6 @@ function App() {
           )}
           {messages.map((message) => (
             <article key={message.id} className={`message ${message.role}`}>
-              <div className="avatar">{message.role === "user" ? "你" : "AI"}</div>
               <div className="bubble">
                 <p>{message.content}</p>
                 {message.image_ids.length > 0 && (
@@ -389,7 +388,6 @@ function App() {
           ))}
           {generating && (
             <article className="message assistant">
-              <div className="avatar">AI</div>
               <div className="bubble loading">
                 <RefreshCw size={17} />
                 正在生成图片...
