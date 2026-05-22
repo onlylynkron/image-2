@@ -39,10 +39,13 @@ class Store(Protocol):
     def runtime_config(self) -> ServerConfig: ...
     def public_config(self) -> PublicConfig: ...
     def update_config(self, patch: ServerConfigPatch) -> PublicConfig: ...
-    def list_sessions(self) -> list[dict]: ...
-    def create_session(self, title: str = DEFAULT_SESSION_TITLE) -> ChatSession: ...
-    def get_session(self, session_id: str): ...
-    def update_session(self, session_id: str, **patch) -> ChatSession | None: ...
+    def create_user(self, username: str, password_hash: str) -> UserProfile: ...
+    def find_user_by_username(self, username: str) -> UserProfile | None: ...
+    def get_user(self, user_id: str) -> UserProfile | None: ...
+    def list_sessions(self, user_id: str | None = None) -> list[dict]: ...
+    def create_session(self, title: str = DEFAULT_SESSION_TITLE, user_id: str | None = None) -> ChatSession: ...
+    def get_session(self, session_id: str, user_id: str | None = None): ...
+    def update_session(self, session_id: str, user_id: str | None = None, **patch) -> ChatSession | None: ...
     def add_message(self, session_id: str, role: str, content: str, image_ids=None, meta=None) -> ChatMessage: ...
     def update_message(self, message_id: str, **patch) -> ChatMessage | None: ...
     def add_image(self, **payload) -> ImageAsset: ...
@@ -63,6 +66,7 @@ def _default_db() -> Database:
     return Database(
         user=UserProfile(
             id=str(uuid4()),
+            username="local",
             display_name=DEFAULT_USER_NAME,
             created_at=stamp,
             updated_at=stamp,
@@ -138,9 +142,34 @@ class JsonStore:
         )
         return self.public_config()
 
-    def list_sessions(self) -> list[dict]:
+    def create_user(self, username: str, password_hash: str) -> UserProfile:
+        db = self.read_db()
+        stamp = now_iso()
+        user = UserProfile(
+            id=str(uuid4()),
+            username=username,
+            display_name=username,
+            password_hash=password_hash,
+            created_at=stamp,
+            updated_at=stamp,
+        )
+        db.user = user
+        self.write_db(db)
+        return user
+
+    def find_user_by_username(self, username: str) -> UserProfile | None:
+        db = self.read_db()
+        return db.user if db.user.username == username else None
+
+    def get_user(self, user_id: str) -> UserProfile | None:
+        db = self.read_db()
+        return db.user if db.user.id == user_id else None
+
+    def list_sessions(self, user_id: str | None = None) -> list[dict]:
         db = self.read_db()
         sessions = sorted(db.sessions, key=lambda item: item.updated_at, reverse=True)
+        if user_id:
+            sessions = [session for session in sessions if session.user_id == user_id]
         session_items = [
             {
                 **session.model_dump(),
@@ -151,11 +180,12 @@ class JsonStore:
         ]
         return [item for item in session_items if item["message_count"] > 0 or item["image_count"] > 0]
 
-    def create_session(self, title: str = DEFAULT_SESSION_TITLE) -> ChatSession:
+    def create_session(self, title: str = DEFAULT_SESSION_TITLE, user_id: str | None = None) -> ChatSession:
         db = self.read_db()
         stamp = now_iso()
         session = ChatSession(
             id=str(uuid4()),
+            user_id=user_id,
             title=title,
             created_at=stamp,
             updated_at=stamp,
@@ -165,10 +195,12 @@ class JsonStore:
         self.write_db(db)
         return session
 
-    def get_session(self, session_id: str):
+    def get_session(self, session_id: str, user_id: str | None = None):
         db = self.read_db()
         session = next((item for item in db.sessions if item.id == session_id), None)
         if not session:
+            return None
+        if user_id and session.user_id != user_id:
             return None
         return {
             "session": session,
@@ -176,10 +208,12 @@ class JsonStore:
             "images": [i for i in db.images if i.session_id == session_id],
         }
 
-    def update_session(self, session_id: str, **patch) -> ChatSession | None:
+    def update_session(self, session_id: str, user_id: str | None = None, **patch) -> ChatSession | None:
         db = self.read_db()
         session = next((item for item in db.sessions if item.id == session_id), None)
         if not session:
+            return None
+        if user_id and session.user_id != user_id:
             return None
         updated = session.model_copy(update={**patch, "updated_at": now_iso()})
         db.sessions = [updated if item.id == session_id else item for item in db.sessions]
@@ -301,7 +335,9 @@ class PostgresStore:
                     """
                     CREATE TABLE IF NOT EXISTS app_user (
                         id text PRIMARY KEY,
+                        username text UNIQUE,
                         display_name text NOT NULL,
+                        password_hash text,
                         created_at text NOT NULL,
                         updated_at text NOT NULL
                     );
@@ -311,6 +347,7 @@ class PostgresStore:
                     );
                     CREATE TABLE IF NOT EXISTS chat_sessions (
                         id text PRIMARY KEY,
+                        user_id text REFERENCES app_user(id) ON DELETE CASCADE,
                         title text NOT NULL,
                         summary text NOT NULL DEFAULT '',
                         summary_updated_at text,
@@ -349,12 +386,21 @@ class PostgresStore:
                     CREATE INDEX IF NOT EXISTS idx_image_assets_session_id ON image_assets(session_id);
                     """
                 )
+                cur.execute("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS username text")
+                cur.execute("ALTER TABLE app_user ADD COLUMN IF NOT EXISTS password_hash text")
+                cur.execute("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS user_id text")
+                cur.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_app_user_username ON app_user (username) WHERE username IS NOT NULL"
+                )
                 cur.execute("SELECT id FROM app_user LIMIT 1")
                 if not cur.fetchone():
                     stamp = now_iso()
                     cur.execute(
-                        "INSERT INTO app_user (id, display_name, created_at, updated_at) VALUES (%s, %s, %s, %s)",
-                        (str(uuid4()), DEFAULT_USER_NAME, stamp, stamp),
+                        """
+                        INSERT INTO app_user (id, username, display_name, password_hash, created_at, updated_at)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (str(uuid4()), "local", DEFAULT_USER_NAME, None, stamp, stamp),
                     )
 
     def image_path(self, filename: str) -> Path:
@@ -400,28 +446,68 @@ class PostgresStore:
                     )
         return self.public_config()
 
-    def list_sessions(self) -> list[dict]:
+    def create_user(self, username: str, password_hash: str) -> UserProfile:
+        stamp = now_iso()
+        user = UserProfile(
+            id=str(uuid4()),
+            username=username,
+            display_name=username,
+            password_hash=password_hash,
+            created_at=stamp,
+            updated_at=stamp,
+        )
         with self.connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
+                    INSERT INTO app_user (id, username, display_name, password_hash, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (user.id, user.username, user.display_name, user.password_hash, user.created_at, user.updated_at),
+                )
+        return user
+
+    def find_user_by_username(self, username: str) -> UserProfile | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM app_user WHERE username = %s", (username,))
+                row = cur.fetchone()
+        return self._user_row(row) if row else None
+
+    def get_user(self, user_id: str) -> UserProfile | None:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM app_user WHERE id = %s", (user_id,))
+                row = cur.fetchone()
+        return self._user_row(row) if row else None
+
+    def list_sessions(self, user_id: str | None = None) -> list[dict]:
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                where_clause = "WHERE s.user_id = %s" if user_id else ""
+                params = (user_id,) if user_id else ()
+                cur.execute(
+                    f"""
                     SELECT s.*,
                         COUNT(DISTINCT m.id) AS message_count,
                         COUNT(DISTINCT i.id) AS image_count
                     FROM chat_sessions s
                     LEFT JOIN chat_messages m ON m.session_id = s.id
                     LEFT JOIN image_assets i ON i.session_id = s.id
+                    {where_clause}
                     GROUP BY s.id
                     HAVING COUNT(DISTINCT m.id) > 0 OR COUNT(DISTINCT i.id) > 0
                     ORDER BY s.updated_at DESC
-                    """
+                    """,
+                    params,
                 )
                 return [self._session_row(row) for row in cur.fetchall()]
 
-    def create_session(self, title: str = DEFAULT_SESSION_TITLE) -> ChatSession:
+    def create_session(self, title: str = DEFAULT_SESSION_TITLE, user_id: str | None = None) -> ChatSession:
         stamp = now_iso()
         session = ChatSession(
             id=str(uuid4()),
+            user_id=user_id,
             title=title,
             created_at=stamp,
             updated_at=stamp,
@@ -432,11 +518,12 @@ class PostgresStore:
                 cur.execute(
                     """
                     INSERT INTO chat_sessions
-                        (id, title, summary, summary_updated_at, created_at, updated_at, options)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        (id, user_id, title, summary, summary_updated_at, created_at, updated_at, options)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         session.id,
+                        session.user_id,
                         session.title,
                         session.summary,
                         session.summary_updated_at,
@@ -447,10 +534,13 @@ class PostgresStore:
                 )
         return session
 
-    def get_session(self, session_id: str):
+    def get_session(self, session_id: str, user_id: str | None = None):
         with self.connect() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT * FROM chat_sessions WHERE id = %s", (session_id,))
+                cur.execute(
+                    "SELECT * FROM chat_sessions WHERE id = %s AND (%s IS NULL OR user_id = %s)",
+                    (session_id, user_id, user_id),
+                )
                 session_row = cur.fetchone()
                 if not session_row:
                     return None
@@ -464,8 +554,8 @@ class PostgresStore:
             "images": images,
         }
 
-    def update_session(self, session_id: str, **patch) -> ChatSession | None:
-        current = self.get_session(session_id)
+    def update_session(self, session_id: str, user_id: str | None = None, **patch) -> ChatSession | None:
+        current = self.get_session(session_id, user_id)
         if not current:
             return None
         session = current["session"].model_copy(update={**patch, "updated_at": now_iso()})
@@ -644,6 +734,7 @@ class PostgresStore:
     def _session_model(self, row: dict) -> ChatSession:
         return ChatSession(
             id=row["id"],
+            user_id=row.get("user_id"),
             title=row["title"],
             summary=row["summary"] or "",
             summary_updated_at=row["summary_updated_at"],
@@ -683,4 +774,14 @@ class PostgresStore:
             created_at=row["created_at"],
             prompt=row["prompt"],
             options=ImageOptions.model_validate(row["options"]) if row["options"] else None,
+        )
+
+    def _user_row(self, row: dict) -> UserProfile:
+        return UserProfile(
+            id=row["id"],
+            username=row.get("username") or "",
+            display_name=row["display_name"],
+            password_hash=row.get("password_hash"),
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
         )

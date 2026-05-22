@@ -38,9 +38,11 @@ class ServerConfigPatch(BaseModel):
 
 class UserProfile(BaseModel):
     id: str
+    username: str = ""
     display_name: str
     created_at: str
     updated_at: str
+    password_hash: str | None = None
 
 
 class ImageOptions(BaseModel):
@@ -76,6 +78,7 @@ class ChatMessage(BaseModel):
 
 class ChatSession(BaseModel):
     id: str
+    user_id: str | None = None
     title: str
     summary: str = ""
     summary_updated_at: str | None = None
@@ -102,3 +105,40 @@ class SessionDetail(BaseModel):
     session: ChatSession
     messages: list[ChatMessage]
     images: list[ImageAsset]
+
+
+class AuthPayload(BaseModel):
+    username: str
+    password: str
+
+
+class AuthUser(BaseModel):
+    id: str
+    username: str
+    display_name: str
+
+
+class AuthResponse(BaseModel):
+    token: str
+    user: AuthUser
+
+
+class GuestImageSource(BaseModel):
+    id: str
+    filename: str
+    original_name: str | None = None
+    mime_type: str = "image/png"
+
+
+class GuestGeneratePayload(GeneratePayload):
+    source_images: list[GuestImageSource] = Field(default_factory=list)
+
+
+class GuestChatPayload(BaseModel):
+    content: str
+    messages: list[ChatMessage] = Field(default_factory=list)
+    summary: str = ""
+
+
+class SyncPayload(BaseModel):
+    sessions: list[SessionDetail] = Field(default_factory=list)

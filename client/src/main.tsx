@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import {
   Download,
+  LogOut,
   MessageSquareX,
   Menu,
   MessageSquarePlus,
@@ -60,6 +61,22 @@ interface ImageAsset {
   options?: ImageOptions;
 }
 
+interface AuthUser {
+  id: string;
+  username: string;
+  display_name: string;
+}
+
+interface AuthState {
+  token: string;
+  user: AuthUser;
+}
+
+interface LocalSnapshot {
+  sessions: SessionItem[];
+  details: Record<string, { session: SessionItem; messages: ChatMessage[]; images: ImageAsset[] }>;
+}
+
 const defaultOptions: ImageOptions = {
   quality: "auto",
   size: "1024x1024",
@@ -67,14 +84,21 @@ const defaultOptions: ImageOptions = {
   compression: 85
 };
 
+const LOCAL_HISTORY_KEY = "image2.localHistory.v1";
+const AUTH_KEY = "image2.auth.v1";
+
 const api = {
-  async json<T>(url: string, init?: RequestInit): Promise<T> {
+  async json<T>(url: string, init?: RequestInit, token?: string): Promise<T> {
     const response = await fetch(url, {
       ...init,
       headers:
         init?.body instanceof FormData
-          ? init.headers
-          : { "Content-Type": "application/json", ...(init?.headers || {}) }
+          ? { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init.headers || {}) }
+          : {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              ...(init?.headers || {})
+            }
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
@@ -84,6 +108,42 @@ const api = {
     return payload as T;
   }
 };
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function createId() {
+  return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function readLocalHistory(): LocalSnapshot {
+  try {
+    const saved = localStorage.getItem(LOCAL_HISTORY_KEY);
+    if (saved) return JSON.parse(saved) as LocalSnapshot;
+  } catch {
+    // Ignore broken local snapshots.
+  }
+  return { sessions: [], details: {} };
+}
+
+function writeLocalHistory(snapshot: LocalSnapshot) {
+  localStorage.setItem(LOCAL_HISTORY_KEY, JSON.stringify(snapshot));
+}
+
+function readAuth(): AuthState | null {
+  try {
+    const saved = localStorage.getItem(AUTH_KEY);
+    return saved ? (JSON.parse(saved) as AuthState) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeAuth(auth: AuthState | null) {
+  if (auth) localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
+  else localStorage.removeItem(AUTH_KEY);
+}
 
 const imageIntentRules = [
   /生成.*(图|图片|图像|照片|海报|封面|logo|头像|壁纸)/i,
@@ -100,6 +160,10 @@ function isImageRequest(content: string, selectedImageCount: number) {
 }
 
 function App() {
+  const [auth, setAuth] = React.useState<AuthState | null>(() => readAuth());
+  const [authOpen, setAuthOpen] = React.useState(false);
+  const [authMode, setAuthMode] = React.useState<"login" | "register">("login");
+  const [authForm, setAuthForm] = React.useState({ username: "", password: "" });
   const [sessions, setSessions] = React.useState<SessionItem[]>([]);
   const [activeId, setActiveId] = React.useState("");
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
@@ -114,8 +178,10 @@ function App() {
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [previewImage, setPreviewImage] = React.useState<ImageAsset | null>(null);
   const [error, setError] = React.useState("");
+  const [authError, setAuthError] = React.useState("");
   const messagesEndRef = React.useRef<HTMLDivElement | null>(null);
 
+  const isLoggedIn = Boolean(auth?.token);
   const activeSession = sessions.find((session) => session.id === activeId);
   const imageById = React.useMemo(
     () => new Map(images.map((image) => [image.id, image])),
@@ -125,7 +191,7 @@ function App() {
 
   React.useEffect(() => {
     void bootstrap();
-  }, []);
+  }, [auth?.token]);
 
   React.useEffect(() => {
     if (activeId) void loadSession(activeId);
@@ -136,17 +202,36 @@ function App() {
   }, [messages.length, generating]);
 
   async function bootstrap() {
-    const sessionList = await api.json<SessionItem[]>("/api/sessions");
+    if (!auth?.token) {
+      const snapshot = readLocalHistory();
+      setSessions(snapshot.sessions);
+      setActiveId(snapshot.sessions[0]?.id || "");
+      if (!snapshot.sessions[0]) {
+        setMessages([]);
+        setImages([]);
+      }
+      return;
+    }
+    const sessionList = await api.json<SessionItem[]>("/api/sessions", undefined, auth.token);
     setSessions(sessionList);
     setActiveId(sessionList[0]?.id || "");
   }
 
   async function loadSession(id: string) {
+    if (!auth?.token) {
+      const detail = readLocalHistory().details[id];
+      if (!detail) return;
+      setMessages(detail.messages);
+      setImages(detail.images);
+      setOptions(detail.session.options || defaultOptions);
+      setSelectedImages([]);
+      return;
+    }
     const detail = await api.json<{
       session: SessionItem;
       messages: ChatMessage[];
       images: ImageAsset[];
-    }>(`/api/sessions/${id}`);
+    }>(`/api/sessions/${id}`, undefined, auth.token);
     setMessages(detail.messages);
     setImages(detail.images);
     setOptions(detail.session.options || defaultOptions);
@@ -155,10 +240,25 @@ function App() {
 
   async function ensureSession() {
     if (activeId) return activeId;
+    if (!auth?.token) {
+      const stamp = nowIso();
+      const session: SessionItem = {
+        id: createId(),
+        title: "未命名会话",
+        summary: "",
+        created_at: stamp,
+        updated_at: stamp,
+        options,
+        message_count: 0,
+        image_count: 0
+      };
+      setActiveId(session.id);
+      return session.id;
+    }
     const session = await api.json<SessionItem>("/api/sessions", {
       method: "POST",
       body: JSON.stringify({ title: "未命名会话" })
-    });
+    }, auth.token);
     setActiveId(session.id);
     return session.id;
   }
@@ -175,7 +275,91 @@ function App() {
   }
 
   async function refreshSessions() {
-    setSessions(await api.json<SessionItem[]>("/api/sessions"));
+    if (!auth?.token) {
+      setSessions(readLocalHistory().sessions);
+      return;
+    }
+    setSessions(await api.json<SessionItem[]>("/api/sessions", undefined, auth.token));
+  }
+
+  function saveLocalDetail(
+    sessionId: string,
+    nextMessages: ChatMessage[],
+    nextImages: ImageAsset[],
+    nextOptions = options
+  ) {
+    const snapshot = readLocalHistory();
+    const previous = snapshot.details[sessionId]?.session;
+    const stamp = nowIso();
+    const title =
+      previous?.title && previous.title !== "未命名会话"
+        ? previous.title
+        : nextMessages.find((message) => message.role === "user")?.content.slice(0, 28) || "未命名会话";
+    const session: SessionItem = {
+      id: sessionId,
+      title,
+      summary: previous?.summary || "",
+      created_at: previous?.created_at || stamp,
+      updated_at: stamp,
+      options: nextOptions,
+      message_count: nextMessages.length,
+      image_count: nextImages.length
+    };
+    const sessionsWithoutCurrent = snapshot.sessions.filter((item) => item.id !== sessionId);
+    const nextSnapshot: LocalSnapshot = {
+      sessions: nextMessages.length || nextImages.length ? [session, ...sessionsWithoutCurrent] : sessionsWithoutCurrent,
+      details: {
+        ...snapshot.details,
+        [sessionId]: { session, messages: nextMessages, images: nextImages }
+      }
+    };
+    writeLocalHistory(nextSnapshot);
+    setSessions(nextSnapshot.sessions);
+  }
+
+  async function submitAuth() {
+    setAuthError("");
+    try {
+      const result = await api.json<AuthState>(`/api/auth/${authMode}`, {
+        method: "POST",
+        body: JSON.stringify(authForm)
+      });
+      writeAuth(result);
+      setAuth(result);
+      setAuthOpen(false);
+      setAuthForm({ username: "", password: "" });
+      await syncLocalHistory(result.token);
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "登录失败");
+    }
+  }
+
+  function logout() {
+    writeAuth(null);
+    setAuth(null);
+    createSession();
+  }
+
+  async function syncLocalHistory(token = auth?.token || "") {
+    const snapshot = readLocalHistory();
+    if (!token || !snapshot.sessions.length) return;
+    const payload = {
+      sessions: snapshot.sessions
+        .map((session) => snapshot.details[session.id])
+        .filter(Boolean)
+        .map((detail) => ({
+          session: detail.session,
+          messages: detail.messages,
+          images: detail.images
+        }))
+    };
+    const result = await api.json<{ sessions: SessionItem[] }>("/api/sync", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    }, token);
+    localStorage.removeItem(LOCAL_HISTORY_KEY);
+    setSessions(result.sessions);
+    setActiveId(result.sessions[0]?.id || "");
   }
 
   async function deleteSession(sessionId: string, title: string) {
@@ -184,9 +368,25 @@ function App() {
     }
     setError("");
     try {
+      if (!auth?.token) {
+        const snapshot = readLocalHistory();
+        const nextSessions = snapshot.sessions.filter((item) => item.id !== sessionId);
+        const nextDetails = { ...snapshot.details };
+        delete nextDetails[sessionId];
+        writeLocalHistory({ sessions: nextSessions, details: nextDetails });
+        setSessions(nextSessions);
+        const nextId = sessionId === activeId ? nextSessions[0]?.id || "" : activeId;
+        setActiveId(nextId);
+        if (!nextId) {
+          setMessages([]);
+          setImages([]);
+          setSelectedImages([]);
+        }
+        return;
+      }
       const result = await api.json<{ sessions: SessionItem[] }>(`/api/sessions/${sessionId}`, {
         method: "DELETE"
-      });
+      }, auth.token);
       setSessions(result.sessions);
       const nextId = sessionId === activeId ? result.sessions[0]?.id || "" : activeId;
       setActiveId(nextId);
@@ -207,7 +407,16 @@ function App() {
     }
     setError("");
     try {
-      await api.json(`/api/sessions/${activeId}/history`, { method: "DELETE" });
+      if (!auth?.token) {
+        saveLocalDetail(activeId, [], []);
+        const snapshot = readLocalHistory();
+        const nextSessions = snapshot.sessions.filter((item) => item.id !== activeId);
+        const nextDetails = { ...snapshot.details };
+        delete nextDetails[activeId];
+        writeLocalHistory({ sessions: nextSessions, details: nextDetails });
+      } else {
+        await api.json(`/api/sessions/${activeId}/history`, { method: "DELETE" }, auth.token);
+      }
       setMessages([]);
       setImages([]);
       setSelectedImages([]);
@@ -225,13 +434,19 @@ function App() {
       const sessionId = await ensureSession();
       const form = new FormData();
       Array.from(files).slice(0, 6).forEach((file) => form.append("images", file));
-      const uploaded = await api.json<ImageAsset[]>(`/api/sessions/${sessionId}/uploads`, {
-        method: "POST",
-        body: form
-      });
-      setImages((items) => [...items, ...uploaded]);
+      const uploaded = await api.json<ImageAsset[]>(
+        auth?.token ? `/api/sessions/${sessionId}/uploads` : "/api/guest/uploads",
+        {
+          method: "POST",
+          body: form
+        },
+        auth?.token
+      );
+      const nextImages = [...images, ...uploaded.map((image) => ({ ...image, session_id: sessionId }))];
+      setImages(nextImages);
       setSelectedImages((ids) => [...new Set([...ids, ...uploaded.map((item) => item.id)])]);
-      await refreshSessions();
+      if (!auth?.token) saveLocalDetail(sessionId, messages, nextImages);
+      else await refreshSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "上传失败");
     } finally {
@@ -251,13 +466,40 @@ function App() {
     setPrompt("");
     try {
       const sessionId = await ensureSession();
+      if (!auth?.token) {
+        const userMessage: ChatMessage = {
+          id: createId(),
+          session_id: sessionId,
+          role: "user",
+          content: nextPrompt,
+          image_ids: [],
+          created_at: nowIso()
+        };
+        const result = await api.json<{ content: string; meta?: Record<string, unknown> }>("/api/guest/chat", {
+          method: "POST",
+          body: JSON.stringify({ content: nextPrompt, messages: [...messages, userMessage] })
+        });
+        const assistantMessage: ChatMessage = {
+          id: createId(),
+          session_id: sessionId,
+          role: "assistant",
+          content: result.content,
+          image_ids: [],
+          created_at: nowIso(),
+          meta: result.meta
+        };
+        const nextMessages = [...messages, userMessage, assistantMessage];
+        setMessages(nextMessages);
+        saveLocalDetail(sessionId, nextMessages, images);
+        return;
+      }
       const result = await api.json<{
         userMessage: ChatMessage;
         assistantMessage: ChatMessage;
       }>(`/api/sessions/${sessionId}/chat`, {
         method: "POST",
         body: JSON.stringify({ content: nextPrompt })
-      });
+      }, auth.token);
       setMessages((items) => [...items, result.userMessage, result.assistantMessage]);
       await refreshSessions();
     } catch (err) {
@@ -276,6 +518,51 @@ function App() {
     setPrompt("");
     try {
       const sessionId = await ensureSession();
+      const sourceImages = images.filter((image) => selectedImages.includes(image.id));
+      if (!auth?.token) {
+        const userMessage: ChatMessage = {
+          id: createId(),
+          session_id: sessionId,
+          role: "user",
+          content: nextPrompt,
+          image_ids: selectedImages,
+          created_at: nowIso()
+        };
+        const result = await api.json<{
+          content: string;
+          image: ImageAsset;
+          meta?: Record<string, unknown>;
+        }>("/api/guest/generate", {
+          method: "POST",
+          body: JSON.stringify({
+            prompt: nextPrompt,
+            options,
+            source_images: sourceImages.map((image) => ({
+              id: image.id,
+              filename: image.filename,
+              original_name: image.original_name,
+              mime_type: image.mime_type
+            }))
+          })
+        });
+        const image = { ...result.image, id: createId(), session_id: sessionId };
+        const assistantMessage: ChatMessage = {
+          id: createId(),
+          session_id: sessionId,
+          role: "assistant",
+          content: result.content,
+          image_ids: [image.id],
+          created_at: nowIso(),
+          meta: result.meta
+        };
+        const nextMessages = [...messages, userMessage, assistantMessage];
+        const nextImages = [...images, image];
+        setMessages(nextMessages);
+        setImages(nextImages);
+        setSelectedImages([image.id]);
+        saveLocalDetail(sessionId, nextMessages, nextImages, options);
+        return;
+      }
       const result = await api.json<{
         userMessage: ChatMessage;
         assistantMessage: ChatMessage;
@@ -287,7 +574,7 @@ function App() {
           options,
           source_image_ids: selectedImages
         })
-      });
+      }, auth.token);
       setMessages((items) => [...items, result.userMessage, result.assistantMessage]);
       setImages((items) => [...items, result.image]);
       setSelectedImages([result.image.id]);
@@ -330,6 +617,33 @@ function App() {
           <MessageSquarePlus size={18} />
           新建会话
         </button>
+        <div className="auth-card">
+          {isLoggedIn ? (
+            <>
+              <div className="auth-user">
+                <strong>{auth?.user.display_name || auth?.user.username}</strong>
+                <span>账号历史已同步</span>
+              </div>
+              <button className="auth-secondary" onClick={() => void syncLocalHistory()}>
+                同步本地历史
+              </button>
+              <button className="auth-secondary" onClick={logout}>
+                <LogOut size={15} />
+                退出登录
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="auth-user">
+                <strong>游客模式</strong>
+                <span>历史保存在本地浏览器</span>
+              </div>
+              <button className="auth-primary" onClick={() => setAuthOpen(true)}>
+                登录 / 注册
+              </button>
+            </>
+          )}
+        </div>
         <div className="session-list">
           {sessions.map((session) => (
             <div
@@ -467,6 +781,53 @@ function App() {
           />
         </footer>}
       </main>
+
+      {authOpen && (
+        <div className="auth-modal" role="dialog" aria-modal="true" onClick={() => setAuthOpen(false)}>
+          <div className="auth-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="panel-head">
+              <h2>{authMode === "login" ? "登录账号" : "注册账号"}</h2>
+              <button className="icon-button" onClick={() => setAuthOpen(false)} title="关闭">
+                <X size={18} />
+              </button>
+            </div>
+            <label className="auth-field">
+              <span>用户名</span>
+              <input
+                value={authForm.username}
+                onChange={(event) => setAuthForm((form) => ({ ...form, username: event.target.value }))}
+                placeholder="至少 3 位"
+              />
+            </label>
+            <label className="auth-field">
+              <span>密码</span>
+              <input
+                type="password"
+                value={authForm.password}
+                onChange={(event) => setAuthForm((form) => ({ ...form, password: event.target.value }))}
+                placeholder="至少 6 位"
+              />
+            </label>
+            {authError && <div className="error-line">{authError}</div>}
+            <button
+              className="auth-submit"
+              disabled={!authForm.username.trim() || !authForm.password.trim()}
+              onClick={() => void submitAuth()}
+            >
+              {authMode === "login" ? "登录" : "注册"}
+            </button>
+            <button
+              className="auth-switch"
+              onClick={() => {
+                setAuthMode(authMode === "login" ? "register" : "login");
+                setAuthError("");
+              }}
+            >
+              {authMode === "login" ? "没有账号？注册" : "已有账号？登录"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {previewImage && (
         <div className="image-preview" role="dialog" aria-modal="true" onClick={closePreview}>
