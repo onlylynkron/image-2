@@ -99,6 +99,7 @@ class GeneratePayload(BaseModel):
     options: ImageOptions = Field(default_factory=ImageOptions)
     source_image_ids: list[str] = Field(default_factory=list)
     uploaded_image_ids: list[str] = Field(default_factory=list)
+    image_count: int | None = Field(default=None, ge=1, le=4)
 
 
 class SessionDetail(BaseModel):

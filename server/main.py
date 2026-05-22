@@ -30,7 +30,7 @@ from .models import (
     SyncPayload,
     UserProfile,
 )
-from .openai_image import decode_image_result, request_image
+from .openai_image import decode_image_results, request_image
 from .storage import DEFAULT_SESSION_TITLE, create_store, now_iso
 
 config = load_config()
@@ -319,8 +319,8 @@ def generate_image(session_id: str, payload: GeneratePayload, user: UserProfile 
             source_images,
             store.image_path,
         )
-        content, mime_type, ext, revised_prompt = decode_image_result(result, payload.options.format)
-        filename = store.save_image_file(content, ext)
+        decoded_images = decode_image_results(result, payload.options.format)
+        revised_prompts = [item[3] for item in decoded_images if item[3]]
         assistant_message = store.add_message(
             session_id=session_id,
             role="assistant",
@@ -328,20 +328,26 @@ def generate_image(session_id: str, payload: GeneratePayload, user: UserProfile 
             image_ids=[],
             meta={
                 "promptContext": prompt_context,
-                "revisedPrompt": revised_prompt,
+                "revisedPrompt": revised_prompts[0] if revised_prompts else None,
+                "revisedPrompts": revised_prompts,
                 "sourceImageIds": source_ids,
             },
         )
-        image = store.add_image(
-            session_id=session_id,
-            message_id=assistant_message.id,
-            filename=filename,
-            mime_type=mime_type,
-            kind="generated",
-            prompt=payload.prompt,
-            options=payload.options,
-        )
-        assistant_message = store.update_message(assistant_message.id, image_ids=[image.id])
+        images = []
+        for content, mime_type, ext, _revised_prompt in decoded_images:
+            filename = store.save_image_file(content, ext)
+            images.append(
+                store.add_image(
+                    session_id=session_id,
+                    message_id=assistant_message.id,
+                    filename=filename,
+                    mime_type=mime_type,
+                    kind="generated",
+                    prompt=payload.prompt,
+                    options=payload.options,
+                )
+            )
+        assistant_message = store.update_message(assistant_message.id, image_ids=[image.id for image in images])
         current_title = refreshed["session"].title
         if current_title == DEFAULT_SESSION_TITLE:
             store.update_session(session_id, user_id=user.id, title=payload.prompt[:28] or current_title, options=payload.options)
@@ -351,7 +357,8 @@ def generate_image(session_id: str, payload: GeneratePayload, user: UserProfile 
         return {
             "userMessage": user_message,
             "assistantMessage": assistant_message,
-            "image": image,
+            "image": images[0],
+            "images": images,
         }
     except Exception as exc:
         message = str(exc) or "Image generation failed"
@@ -443,23 +450,33 @@ def guest_generate(payload: GuestGeneratePayload):
         [],
     )
     result = request_image(runtime_config, payload, prompt_context, source_images, store.image_path)
-    content, mime_type, ext, revised_prompt = decode_image_result(result, payload.options.format)
-    filename = store.save_image_file(content, ext)
-    image = ImageAsset(
-        id=secrets.token_hex(16),
-        session_id="guest",
-        filename=filename,
-        mime_type=mime_type,
-        kind="generated",
-        url=f"/assets/{filename}",
-        created_at=now_iso(),
-        prompt=payload.prompt,
-        options=payload.options,
-    )
+    decoded_images = decode_image_results(result, payload.options.format)
+    revised_prompts = [item[3] for item in decoded_images if item[3]]
+    images = []
+    for content, mime_type, ext, _revised_prompt in decoded_images:
+        filename = store.save_image_file(content, ext)
+        images.append(
+            ImageAsset(
+                id=secrets.token_hex(16),
+                session_id="guest",
+                filename=filename,
+                mime_type=mime_type,
+                kind="generated",
+                url=f"/assets/{filename}",
+                created_at=now_iso(),
+                prompt=payload.prompt,
+                options=payload.options,
+            )
+        )
     return {
         "content": "Image generated.",
-        "image": image,
-        "meta": {"promptContext": prompt_context, "revisedPrompt": revised_prompt},
+        "image": images[0],
+        "images": images,
+        "meta": {
+            "promptContext": prompt_context,
+            "revisedPrompt": revised_prompts[0] if revised_prompts else None,
+            "revisedPrompts": revised_prompts,
+        },
     }
 
 

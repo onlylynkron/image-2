@@ -657,6 +657,7 @@ function App() {
         const result = await api.json<{
           content: string;
           image: ImageAsset;
+          images?: ImageAsset[];
           meta?: Record<string, unknown>;
         }>("/api/guest/generate", {
           method: "POST",
@@ -671,18 +672,22 @@ function App() {
             }))
           })
         });
-        const image = { ...result.image, id: createId(), session_id: sessionId };
+        const generatedImages = (result.images?.length ? result.images : [result.image]).map((image) => ({
+          ...image,
+          id: createId(),
+          session_id: sessionId
+        }));
         const assistantMessage: ChatMessage = {
           id: createId(),
           session_id: sessionId,
           role: "assistant",
           content: result.content,
-          image_ids: [image.id],
+          image_ids: generatedImages.map((image) => image.id),
           created_at: nowIso(),
           meta: result.meta
         };
         const nextMessages = [...optimisticMessages, assistantMessage];
-        const nextImages = [...images, image];
+        const nextImages = [...images, ...generatedImages];
         if (activeIdRef.current === sessionId) {
           setMessages(nextMessages);
           setImages(nextImages);
@@ -694,6 +699,7 @@ function App() {
         userMessage: ChatMessage;
         assistantMessage: ChatMessage;
         image: ImageAsset;
+        images?: ImageAsset[];
       }>(`/api/sessions/${sessionId}/generate`, {
         method: "POST",
         body: JSON.stringify({
@@ -704,7 +710,7 @@ function App() {
       }, auth.token);
       if (activeIdRef.current === sessionId) {
         setMessages((items) => [...items, result.assistantMessage]);
-        setImages((items) => [...items, result.image]);
+        setImages((items) => [...items, ...(result.images?.length ? result.images : [result.image])]);
       }
       await refreshSessions();
     } catch (err) {
@@ -843,7 +849,7 @@ function App() {
           </button>
           <div className="topbar-title">
             <strong>{activeSession?.title || "未命名会话"}</strong>
-            <span>独立上下文 · 本地历史</span>
+            {/*<span>独立上下文 · 本地历史</span>*/}
           </div>
           <button
             className="icon-button theme-toggle"

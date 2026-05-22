@@ -607,7 +607,7 @@ button {
 }
 
 .image-bubble {
-  max-width: min(360px, 100%);
+  max-width: min(760px, 100%);
   padding: 0;
   border: 0;
   background: transparent;
@@ -616,7 +616,10 @@ button {
 
 .image-result {
   display: grid;
-  width: min(360px, 100%);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 360px));
+  justify-content: start;
+  gap: 12px;
+  width: min(760px, 100%);
 }
 
 .image-tile {
@@ -1162,6 +1165,10 @@ button {
   .image-result {
     max-width: min(320px, 100%);
     width: min(320px, 100%);
+  }
+
+  .image-result {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .image-generating-card {
