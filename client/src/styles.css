@@ -51,6 +51,13 @@ button {
   padding: 16px;
 }
 
+.sidebar {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 0;
+  max-height: 100vh;
+}
+
 .settings-panel {
   position: fixed;
   top: 0;
@@ -121,12 +128,16 @@ button {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 12px;
 }
 
 .auth-card {
   display: grid;
   gap: 8px;
-  margin: 0 0 14px;
+  align-self: end;
+  margin: 12px 0 0;
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;

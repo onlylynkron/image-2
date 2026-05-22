@@ -617,6 +617,32 @@ function App() {
           <MessageSquarePlus size={18} />
           新建会话
         </button>
+        <div className="session-list">
+          {sessions.map((session) => (
+            <div
+              key={session.id}
+              className={`session-row ${session.id === activeId ? "active" : ""}`}
+            >
+              <button
+                className="session-item"
+                onClick={() => {
+                  setActiveId(session.id);
+                  setSidebarOpen(false);
+                }}
+              >
+                <span>{session.title}</span>
+                <small>{session.message_count} 条消息 · {session.image_count} 张图</small>
+              </button>
+              <button
+                className="session-delete"
+                onClick={() => void deleteSession(session.id, session.title)}
+                title="删除会话"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          ))}
+        </div>
         <div className="auth-card">
           {isLoggedIn ? (
             <>
@@ -643,32 +669,6 @@ function App() {
               </button>
             </>
           )}
-        </div>
-        <div className="session-list">
-          {sessions.map((session) => (
-            <div
-              key={session.id}
-              className={`session-row ${session.id === activeId ? "active" : ""}`}
-            >
-              <button
-                className="session-item"
-                onClick={() => {
-                  setActiveId(session.id);
-                  setSidebarOpen(false);
-                }}
-              >
-                <span>{session.title}</span>
-                <small>{session.message_count} 条消息 · {session.image_count} 张图</small>
-              </button>
-              <button
-                className="session-delete"
-                onClick={() => void deleteSession(session.id, session.title)}
-                title="删除会话"
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-          ))}
         </div>
       </aside>
 
