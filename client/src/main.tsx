@@ -196,6 +196,7 @@ function App() {
   const [selectedImages, setSelectedImages] = React.useState<string[]>([]);
   const [uploading, setUploading] = React.useState(false);
   const [busyBySession, setBusyBySession] = React.useState<Record<string, "chat" | "image">>({});
+  const [pendingBySession, setPendingBySession] = React.useState<Record<string, ChatMessage[]>>({});
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [previewImage, setPreviewImage] = React.useState<ImageAsset | null>(null);
@@ -258,11 +259,30 @@ function App() {
     setActiveId(sessionList[0]?.id || "");
   }
 
+  function mergePendingMessages(baseMessages: ChatMessage[], sessionId: string) {
+    const pendingMessages = pendingBySession[sessionId] || [];
+    if (!pendingMessages.length) return baseMessages;
+    const existingIds = new Set(baseMessages.map((message) => message.id));
+    return [...baseMessages, ...pendingMessages.filter((message) => !existingIds.has(message.id))];
+  }
+
+  function setSessionPendingMessages(sessionId: string, pendingMessages: ChatMessage[]) {
+    setPendingBySession((current) => ({ ...current, [sessionId]: pendingMessages }));
+  }
+
+  function clearSessionPendingMessages(sessionId: string) {
+    setPendingBySession((current) => {
+      if (!current[sessionId]) return current;
+      const { [sessionId]: _removed, ...rest } = current;
+      return rest;
+    });
+  }
+
   async function loadSession(id: string) {
     if (!auth?.token) {
       const detail = readLocalHistory().details[id];
       if (!detail) return;
-      setMessages(detail.messages);
+      setMessages(mergePendingMessages(detail.messages, id));
       setImages(detail.images);
       setOptions(detail.session.options || defaultOptions);
       setSelectedImages([]);
@@ -273,7 +293,7 @@ function App() {
       messages: ChatMessage[];
       images: ImageAsset[];
     }>(`/api/sessions/${id}`, undefined, auth.token);
-    setMessages(detail.messages);
+    setMessages(mergePendingMessages(detail.messages, id));
     setImages(detail.images);
     setOptions(detail.session.options || defaultOptions);
     setSelectedImages([]);
@@ -550,6 +570,7 @@ function App() {
       pendingId = pendingMessage.id;
       optimisticMessages = [...messages, userMessage, pendingMessage];
       setMessages(optimisticMessages);
+      setSessionPendingMessages(sessionId, [userMessage, pendingMessage]);
       markSessionBusy(sessionId, "chat");
       if (!auth?.token) {
         const result = await api.json<{ content: string; meta?: Record<string, unknown> }>("/api/guest/chat", {
@@ -603,6 +624,7 @@ function App() {
         await loadSession(activeId);
       }
     } finally {
+      clearSessionPendingMessages(sessionId);
       clearSessionBusy(sessionId);
     }
   }
@@ -629,6 +651,7 @@ function App() {
       };
       optimisticMessages = [...messages, userMessage];
       setMessages(optimisticMessages);
+      setSessionPendingMessages(sessionId, [userMessage]);
       markSessionBusy(sessionId, "image");
       if (!auth?.token) {
         const result = await api.json<{
@@ -698,6 +721,7 @@ function App() {
       if (activeIdRef.current === sessionId) setMessages([...optimisticMessages, failedMessage]);
       if (!auth?.token && sessionId) saveLocalDetail(sessionId, [...optimisticMessages, failedMessage], images, options);
     } finally {
+      clearSessionPendingMessages(sessionId);
       clearSessionBusy(sessionId);
     }
   }
