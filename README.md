@@ -22,7 +22,7 @@ cp .env.example .env
 npm run dev
 ```
 
-前端默认打开 `http://localhost:5173`，Python 后端默认运行在 `http://localhost:8787`。
+前端默认打开 `http://localhost:5173`，Python 后端默认运行在 `http://localhost:8788`。
 
 API Key、Base URL 和模型名只在服务端配置，不在前端页面展示。
 
