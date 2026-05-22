@@ -612,17 +612,19 @@ function App() {
     setError("");
     const nextPrompt = prompt.trim();
     setPrompt("");
+    const sourceImageIds = selectedImages;
+    setSelectedImages([]);
     let optimisticMessages = messages;
     let sessionId = activeId;
     try {
       sessionId = await ensureSession();
-      const sourceImages = images.filter((image) => selectedImages.includes(image.id));
+      const sourceImages = images.filter((image) => sourceImageIds.includes(image.id));
       const userMessage: ChatMessage = {
         id: createId(),
         session_id: sessionId,
         role: "user",
         content: nextPrompt,
-        image_ids: selectedImages,
+        image_ids: sourceImageIds,
         created_at: nowIso()
       };
       optimisticMessages = [...messages, userMessage];
@@ -661,7 +663,6 @@ function App() {
         if (activeIdRef.current === sessionId) {
           setMessages(nextMessages);
           setImages(nextImages);
-          setSelectedImages([image.id]);
         }
         saveLocalDetail(sessionId, nextMessages, nextImages, options);
         return;
@@ -675,13 +676,12 @@ function App() {
         body: JSON.stringify({
           prompt: nextPrompt,
           options,
-          source_image_ids: selectedImages
+          source_image_ids: sourceImageIds
         })
       }, auth.token);
       if (activeIdRef.current === sessionId) {
         setMessages((items) => [...items, result.assistantMessage]);
         setImages((items) => [...items, result.image]);
-        setSelectedImages([result.image.id]);
       }
       await refreshSessions();
     } catch (err) {
