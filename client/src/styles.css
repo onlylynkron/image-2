@@ -507,9 +507,9 @@ button {
 
 .composer {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto 40px;
+  grid-template-columns: 34px minmax(0, 1fr) 40px;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   max-width: 920px;
   margin: 0 auto;
   min-height: 56px;
@@ -527,21 +527,25 @@ button {
 
 .prompt-field {
   min-width: 0;
+  display: flex;
+  align-items: center;
   padding-left: 8px;
 }
 
 .composer textarea {
   display: block;
   width: 100%;
-  min-height: 24px;
+  height: 36px;
+  min-height: 36px;
   max-height: 118px;
   resize: vertical;
   border: 0;
   outline: 0;
-  padding: 2px 4px;
-  line-height: 1.45;
+  padding: 8px 4px;
+  line-height: 20px;
   background: transparent;
   color: var(--text);
+  overflow-y: auto;
 }
 
 .composer textarea::placeholder {
@@ -562,6 +566,7 @@ button {
 
 .send-button {
   width: 36px;
+  justify-self: end;
   background: #080808;
   color: white;
   border-color: #080808;
@@ -754,7 +759,7 @@ button {
   }
 
   .composer {
-    grid-template-columns: 32px minmax(0, 1fr) 36px;
+    grid-template-columns: 32px minmax(0, 1fr) 38px;
     gap: 6px;
     min-height: 54px;
     padding: 6px 7px 6px 12px;
