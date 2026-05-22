@@ -396,32 +396,6 @@ button {
   color: #050505;
 }
 
-.quick-actions {
-  display: flex;
-  justify-content: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-top: 23px;
-}
-
-.quick-actions button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 38px;
-  padding: 0 15px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: #344054;
-  background: #fff;
-  font-size: 14px;
-}
-
-.quick-actions button:hover {
-  border-color: #c7d0da;
-  background: #f9fbfc;
-}
-
 .reference-strip {
   max-width: 920px;
   margin: 0 auto 8px;

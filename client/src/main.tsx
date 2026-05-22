@@ -1,7 +1,6 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import {
-  ImagePlus,
   MessageSquareX,
   Menu,
   MessageSquarePlus,
@@ -10,11 +9,9 @@ import {
   RefreshCw,
   Send,
   Settings,
-  SquarePen,
   Sparkles,
   Trash2,
   Volume2,
-  Wand2,
   X
 } from "lucide-react";
 import "./styles.css";
@@ -253,19 +250,6 @@ function App() {
     );
   }
 
-  function applyQuickPrompt(kind: "generate" | "edit" | "research") {
-    if (kind === "generate") {
-      setPrompt("生成图片：");
-      setSettingsOpen(true);
-      return;
-    }
-    if (kind === "edit") {
-      setPrompt("请根据参考图修改：");
-      return;
-    }
-    setPrompt("查找资料：");
-  }
-
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
@@ -346,20 +330,6 @@ function App() {
                 generating={generating}
                 variant="home"
               />
-              <div className="quick-actions">
-                <button type="button" onClick={() => applyQuickPrompt("generate")}>
-                  <ImagePlus size={17} />
-                  生成图片
-                </button>
-                <button type="button" onClick={() => applyQuickPrompt("edit")}>
-                  <SquarePen size={17} />
-                  撰写或编辑
-                </button>
-                <button type="button" onClick={() => applyQuickPrompt("research")}>
-                  <Wand2 size={17} />
-                  查找资料
-                </button>
-              </div>
             </div>
           )}
           {messages.map((message) => (
