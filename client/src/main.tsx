@@ -4,10 +4,13 @@ import {
   ImagePlus,
   Menu,
   MessageSquarePlus,
+  Mic,
   RefreshCw,
   Send,
   Settings,
+  SquarePen,
   Sparkles,
+  Volume2,
   Wand2,
   X
 } from "lucide-react";
@@ -104,6 +107,7 @@ function App() {
     () => new Map(images.map((image) => [image.id, image])),
     [images]
   );
+  const hasMessages = messages.length > 0;
 
   React.useEffect(() => {
     void bootstrap();
@@ -138,7 +142,7 @@ function App() {
   async function createSession() {
     const session = await api.json<SessionItem>("/api/sessions", {
       method: "POST",
-      body: JSON.stringify({ title: "新图像会话" })
+      body: JSON.stringify({ title: "未命名会话" })
     });
     setSessions((items) => [session, ...items]);
     setActiveId(session.id);
@@ -207,6 +211,19 @@ function App() {
     );
   }
 
+  function applyQuickPrompt(kind: "generate" | "edit" | "research") {
+    if (kind === "generate") {
+      setPrompt("生成图片：");
+      setSettingsOpen(true);
+      return;
+    }
+    if (kind === "edit") {
+      setPrompt("请根据参考图修改：");
+      return;
+    }
+    setPrompt("查找资料：");
+  }
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
@@ -246,7 +263,7 @@ function App() {
             <Menu size={20} />
           </button>
           <div className="topbar-title">
-            <strong>{activeSession?.title || "图像会话"}</strong>
+            <strong>{activeSession?.title || "未命名会话"}</strong>
             <span>独立上下文 · 本地历史</span>
           </div>
           <button className="icon-button" onClick={() => setSettingsOpen(true)} title="生成参数">
@@ -255,11 +272,33 @@ function App() {
         </header>
 
         <section className="conversation">
-          {messages.length === 0 && (
-            <div className="empty-state">
-              <Wand2 size={34} />
-              <h1>描述一张图，或选择历史图片继续编辑</h1>
-              <p>每个会话的上下文独立保存，长历史会自动压缩成可继续创作的摘要。</p>
+          {!hasMessages && (
+            <div className="home-state">
+              <h1>准备好了，随时开始</h1>
+              {error && <div className="error-line home-error">{error}</div>}
+              <PromptBox
+                prompt={prompt}
+                setPrompt={setPrompt}
+                generate={generate}
+                uploadFiles={uploadFiles}
+                uploading={uploading}
+                generating={generating}
+                variant="home"
+              />
+              <div className="quick-actions">
+                <button type="button" onClick={() => applyQuickPrompt("generate")}>
+                  <ImagePlus size={17} />
+                  生成图片
+                </button>
+                <button type="button" onClick={() => applyQuickPrompt("edit")}>
+                  <SquarePen size={17} />
+                  撰写或编辑
+                </button>
+                <button type="button" onClick={() => applyQuickPrompt("research")}>
+                  <Wand2 size={17} />
+                  查找资料
+                </button>
+              </div>
             </div>
           )}
           {messages.map((message) => (
@@ -300,45 +339,22 @@ function App() {
           <div ref={messagesEndRef} />
         </section>
 
-        <footer className="composer-wrap">
+        {hasMessages && <footer className="composer-wrap">
           {error && <div className="error-line">{error}</div>}
           <ReferenceStrip
             images={images}
             selectedImages={selectedImages}
             toggleImage={toggleImage}
           />
-          <div className="composer">
-            <label className="upload-button" title="上传参考图">
-              <ImagePlus size={20} />
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                multiple
-                onChange={(event) => void uploadFiles(event.target.files)}
-                disabled={uploading || generating}
-              />
-            </label>
-            <textarea
-              value={prompt}
-              placeholder="描述你想生成或编辑的图片..."
-              onChange={(event) => setPrompt(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  void generate();
-                }
-              }}
-            />
-            <button
-              className="send-button"
-              disabled={!prompt.trim() || generating}
-              onClick={() => void generate()}
-              title="发送"
-            >
-              <Send size={20} />
-            </button>
-          </div>
-        </footer>
+          <PromptBox
+            prompt={prompt}
+            setPrompt={setPrompt}
+            generate={generate}
+            uploadFiles={uploadFiles}
+            uploading={uploading}
+            generating={generating}
+          />
+        </footer>}
       </main>
 
       <aside className={`settings-panel ${settingsOpen ? "is-open" : ""}`}>
@@ -386,6 +402,61 @@ function App() {
           />
         </ControlGroup>
       </aside>
+    </div>
+  );
+}
+
+function PromptBox({
+  prompt,
+  setPrompt,
+  generate,
+  uploadFiles,
+  uploading,
+  generating,
+  variant = "dock"
+}: {
+  prompt: string;
+  setPrompt: (prompt: string) => void;
+  generate: () => void;
+  uploadFiles: (files: FileList | null) => void;
+  uploading: boolean;
+  generating: boolean;
+  variant?: "home" | "dock";
+}) {
+  return (
+    <div className={`composer ${variant === "home" ? "home-composer" : ""}`}>
+      <label className="upload-button" title="上传参考图">
+        <ImagePlus size={20} />
+        <input
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          multiple
+          onChange={(event) => void uploadFiles(event.target.files)}
+          disabled={uploading || generating}
+        />
+      </label>
+      <textarea
+        value={prompt}
+        placeholder="有问题，尽管问"
+        onChange={(event) => setPrompt(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            void generate();
+          }
+        }}
+      />
+      <button className="voice-button" type="button" title="语音输入">
+        <Mic size={18} />
+      </button>
+      <button
+        className="send-button"
+        disabled={!prompt.trim() || generating}
+        onClick={() => void generate()}
+        title="发送"
+      >
+        {prompt.trim() ? <Send size={20} /> : <Volume2 size={19} />}
+      </button>
     </div>
   );
 }

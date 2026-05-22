@@ -23,7 +23,7 @@ from .models import (
     UserProfile,
 )
 
-DEFAULT_SESSION_TITLE = "New image session"
+DEFAULT_SESSION_TITLE = "未命名会话"
 DEFAULT_USER_NAME = "Local user"
 
 

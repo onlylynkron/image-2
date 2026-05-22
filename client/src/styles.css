@@ -72,6 +72,7 @@ button {
 .icon-button,
 .send-button,
 .upload-button,
+.voice-button,
 .image-tile,
 .reference-strip button {
   border: 1px solid var(--line);
@@ -125,8 +126,7 @@ button {
 
 .session-item small,
 .topbar-title span,
-.control-group span,
-.empty-state p {
+.control-group span {
   color: var(--muted);
 }
 
@@ -179,16 +179,26 @@ button {
   padding: 28px clamp(14px, 4vw, 46px);
 }
 
-.empty-state {
-  max-width: 680px;
-  margin: 12vh auto 0;
+.home-state {
+  min-height: calc(100vh - 130px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
+  padding: 40px 12px 120px;
 }
 
-.empty-state h1 {
-  font-size: clamp(24px, 3vw, 38px);
-  line-height: 1.18;
-  margin: 18px 0 10px;
+.home-state h1 {
+  font-size: clamp(22px, 2.4vw, 30px);
+  line-height: 1.2;
+  margin: 0 0 48px;
+  font-weight: 520;
+}
+
+.home-error {
+  margin-top: -28px;
+  margin-bottom: 14px;
 }
 
 .message {
@@ -290,32 +300,42 @@ button {
 
 .composer {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  grid-template-columns: 34px minmax(0, 1fr) 34px 40px;
   align-items: end;
-  gap: 10px;
+  gap: 6px;
   max-width: 920px;
   margin: 0 auto;
-  padding: 10px;
+  padding: 7px 8px;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 999px;
   box-shadow: var(--shadow);
 }
 
+.home-composer {
+  width: min(760px, 100%);
+  min-height: 58px;
+  box-shadow: 0 18px 70px rgba(15, 26, 38, 0.12);
+}
+
 .composer textarea {
-  min-height: 44px;
-  max-height: 170px;
+  min-height: 30px;
+  max-height: 150px;
   resize: vertical;
   border: 0;
   outline: 0;
-  padding: 10px 4px;
+  padding: 8px 4px;
+  line-height: 1.35;
+  background: transparent;
 }
 
 .upload-button,
+.voice-button,
 .send-button {
-  height: 44px;
+  height: 34px;
   display: grid;
   place-items: center;
+  border-radius: 999px;
 }
 
 .upload-button input {
@@ -323,14 +343,45 @@ button {
 }
 
 .send-button {
-  background: var(--accent);
+  width: 34px;
+  background: #080808;
   color: white;
-  border-color: var(--accent);
+  border-color: #080808;
 }
 
 .send-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+  opacity: 1;
+  cursor: default;
+}
+
+.voice-button {
+  border-color: transparent;
+  background: transparent;
+}
+
+.quick-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 22px;
+}
+
+.quick-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: #344054;
+  background: #fff;
+}
+
+.quick-actions button:hover {
+  border-color: #c7d0da;
+  background: #f9fbfc;
 }
 
 .reference-strip {
@@ -501,8 +552,17 @@ button {
   }
 
   .composer {
-    grid-template-columns: 40px minmax(0, 1fr) 40px;
+    grid-template-columns: 34px minmax(0, 1fr) 34px 38px;
     gap: 6px;
     padding: 8px;
+  }
+
+  .home-state {
+    justify-content: flex-start;
+    padding-top: 18vh;
+  }
+
+  .home-state h1 {
+    margin-bottom: 30px;
   }
 }
