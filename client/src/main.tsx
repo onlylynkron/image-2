@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import {
+  Download,
   MessageSquareX,
   Menu,
   MessageSquarePlus,
@@ -100,6 +101,7 @@ function App() {
   const [sendMode, setSendMode] = React.useState<SendMode>("chat");
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [previewImage, setPreviewImage] = React.useState<ImageAsset | null>(null);
   const [error, setError] = React.useState("");
   const messagesEndRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -279,6 +281,14 @@ function App() {
     );
   }
 
+  function openPreview(image: ImageAsset) {
+    setPreviewImage(image);
+  }
+
+  function closePreview() {
+    setPreviewImage(null);
+  }
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
@@ -390,6 +400,8 @@ function App() {
                           className={`image-tile ${selectedImages.includes(id) ? "selected" : ""}`}
                           key={id}
                           onClick={() => toggleImage(id)}
+                          onDoubleClick={() => openPreview(image)}
+                          title="双击放大"
                         >
                           <img src={image.url} alt={image.prompt || image.original_name || "会话图片"} />
                           <span>{selectedImages.includes(id) ? "已选参考" : "选作参考"}</span>
@@ -431,6 +443,29 @@ function App() {
           />
         </footer>}
       </main>
+
+      {previewImage && (
+        <div className="image-preview" role="dialog" aria-modal="true" onClick={closePreview}>
+          <div className="image-preview-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="image-preview-toolbar">
+              <div>
+                <strong>{previewImage.prompt || previewImage.original_name || "图片预览"}</strong>
+                <span>{previewImage.mime_type}</span>
+              </div>
+              <div className="image-preview-actions">
+                <a href={previewImage.url} download={previewImage.filename} title="保存图片">
+                  <Download size={18} />
+                  保存
+                </a>
+                <button type="button" onClick={closePreview} title="关闭">
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <img src={previewImage.url} alt={previewImage.prompt || previewImage.original_name || "放大图片"} />
+          </div>
+        </div>
+      )}
 
       <aside className={`settings-panel ${settingsOpen ? "is-open" : ""}`}>
         <div className="panel-head">
