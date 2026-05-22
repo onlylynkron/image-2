@@ -781,7 +781,7 @@ function App() {
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
         <div className="sidebar-top">
-          <button className="brand-button" onClick={() => setSidebarOpen(false)}>
+          <button className="brand-button" onClick={createSession}>
             <Sparkles size={19} />
             <span>Image2 Studio</span>
           </button>
