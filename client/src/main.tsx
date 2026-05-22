@@ -8,10 +8,12 @@ import {
   MessageSquareX,
   Menu,
   MessageSquarePlus,
+  Moon,
   Plus,
   Send,
   Settings,
   Sparkles,
+  Sun,
   Trash2,
   X
 } from "lucide-react";
@@ -88,6 +90,7 @@ const defaultOptions: ImageOptions = {
 
 const LOCAL_HISTORY_KEY = "image2.localHistory.v1";
 const AUTH_KEY = "image2.auth.v1";
+const THEME_KEY = "image2.theme.v1";
 
 const api = {
   async json<T>(url: string, init?: RequestInit, token?: string): Promise<T> {
@@ -117,6 +120,14 @@ function nowIso() {
 
 function createId() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function readTheme(): "light" | "dark" {
+  try {
+    return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light";
+  } catch {
+    return "light";
+  }
 }
 
 function readLocalHistory(): LocalSnapshot {
@@ -171,6 +182,7 @@ function isImageRequest(content: string, selectedImageCount: number) {
 }
 
 function App() {
+  const [theme, setTheme] = React.useState<"light" | "dark">(() => readTheme());
   const [auth, setAuth] = React.useState<AuthState | null>(() => readAuth());
   const [authOpen, setAuthOpen] = React.useState(false);
   const [authMode, setAuthMode] = React.useState<"login" | "register">("login");
@@ -207,6 +219,11 @@ function App() {
   React.useEffect(() => {
     void bootstrap();
   }, [auth?.token]);
+
+  React.useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem(THEME_KEY, theme);
+  }, [theme]);
 
   React.useEffect(() => {
     activeIdRef.current = activeId;
@@ -712,6 +729,10 @@ function App() {
     setPrompt(content);
   }
 
+  function toggleTheme() {
+    setTheme((current) => (current === "light" ? "dark" : "light"));
+  }
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
@@ -800,6 +821,13 @@ function App() {
             <strong>{activeSession?.title || "未命名会话"}</strong>
             <span>独立上下文 · 本地历史</span>
           </div>
+          <button
+            className="icon-button theme-toggle"
+            onClick={toggleTheme}
+            title={theme === "light" ? "切换黑色主题" : "切换白色主题"}
+          >
+            {theme === "light" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
           <button className="icon-button" onClick={() => setSettingsOpen(true)} title="生成参数">
             <Settings size={20} />
           </button>

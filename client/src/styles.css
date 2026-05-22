@@ -10,9 +10,49 @@
   --accent-strong: #0a5f55;
   --danger: #b42318;
   --shadow: 0 16px 45px rgba(15, 26, 38, 0.12);
+  --topbar-bg: rgba(255, 255, 255, 0.9);
+  --auth-bg: #f8fafc;
+  --active-bg: #e9f5f3;
+  --user-bubble: #dff3ef;
+  --edit-bubble: #f4f4f5;
+  --button-dark: #080808;
+  --button-dark-text: #ffffff;
+  --composer-fade: rgba(246, 247, 249, 0);
+  --image-card-bg: #f8fafb;
+  --generated-card-bg: #f3f4f4;
+  --danger-bg: #fff1f0;
+  --hover-bg: #eef0f2;
+  --pill-bg: rgba(255, 255, 255, 0.76);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     "Microsoft YaHei", sans-serif;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111315;
+  --panel: #191c20;
+  --panel-soft: #252a30;
+  --text: #eef2f6;
+  --muted: #9aa4af;
+  --line: #30363d;
+  --accent: #45c0ae;
+  --accent-strong: #7bdbc9;
+  --danger: #ff8f86;
+  --shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
+  --topbar-bg: rgba(17, 19, 21, 0.88);
+  --auth-bg: #15181c;
+  --active-bg: rgba(69, 192, 174, 0.14);
+  --user-bubble: #1f4d47;
+  --edit-bubble: #24282d;
+  --button-dark: #eef2f6;
+  --button-dark-text: #101214;
+  --composer-fade: rgba(17, 19, 21, 0);
+  --image-card-bg: #181b1f;
+  --generated-card-bg: #191d22;
+  --danger-bg: rgba(255, 143, 134, 0.14);
+  --hover-bg: #242a31;
+  --pill-bg: rgba(25, 28, 32, 0.8);
 }
 
 * {
@@ -144,7 +184,7 @@ button {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #f8fafc;
+  background: var(--auth-bg);
 }
 
 .auth-user {
@@ -174,9 +214,9 @@ button {
 
 .auth-primary,
 .auth-submit {
-  background: #080808;
-  border-color: #080808;
-  color: #fff;
+  background: var(--button-dark);
+  border-color: var(--button-dark);
+  color: var(--button-dark-text);
 }
 
 .auth-secondary {
@@ -204,7 +244,7 @@ button {
 
 .session-row.active {
   border-color: rgba(15, 123, 108, 0.35);
-  background: #e9f5f3;
+  background: var(--active-bg);
 }
 
 .session-item {
@@ -244,7 +284,7 @@ button {
 
 .session-delete:hover {
   color: var(--danger);
-  background: #fff1f0;
+  background: var(--danger-bg);
 }
 
 .main-panel {
@@ -256,7 +296,7 @@ button {
 }
 
 .topbar {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--topbar-bg);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--line);
   padding: 0 18px;
@@ -284,6 +324,11 @@ button {
   height: 38px;
   display: inline-grid;
   place-items: center;
+  background: var(--panel-soft);
+}
+
+.theme-toggle {
+  border-radius: 999px;
   background: var(--panel-soft);
 }
 
@@ -324,8 +369,8 @@ button {
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  color: #344054;
-  background: rgba(255, 255, 255, 0.76);
+  color: var(--text);
+  background: var(--pill-bg);
   box-shadow: 0 8px 24px rgba(15, 26, 38, 0.05);
   font-size: 14px;
 }
@@ -339,7 +384,7 @@ button {
   line-height: 1.08;
   margin: 0;
   font-weight: 650;
-  color: #111827;
+  color: var(--text);
 }
 
 .home-copy p {
@@ -382,7 +427,7 @@ button {
 }
 
 .message.user .bubble {
-  background: #dff3ef;
+  background: var(--user-bubble);
 }
 
 .message.image-edit-request .bubble {
@@ -399,8 +444,8 @@ button {
 .message.image-edit-request .bubble p {
   padding: 11px 18px;
   border-radius: 999px;
-  background: #f4f4f5;
-  color: #111827;
+  background: var(--edit-bubble);
+  color: var(--text);
   line-height: 1.45;
 }
 
@@ -420,13 +465,13 @@ button {
   padding: 0;
   border: 0;
   border-radius: 8px;
-  color: #606671;
+  color: var(--muted);
   background: transparent;
 }
 
 .message-actions button:hover {
-  color: #111827;
-  background: #eef0f2;
+  color: var(--text);
+  background: var(--hover-bg);
 }
 
 .bubble {
@@ -489,8 +534,8 @@ button {
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: 12px;
-  background: #f3f4f4;
-  border: 1px solid #eceeef;
+  background: var(--generated-card-bg);
+  border: 1px solid var(--line);
   box-shadow: 0 14px 35px rgba(15, 26, 38, 0.08);
 }
 
@@ -586,7 +631,7 @@ button {
   width: 100%;
   padding: 0;
   overflow: hidden;
-  background: #f8fafb;
+  background: var(--image-card-bg);
   border: 1px solid var(--line);
   border-radius: 12px;
   box-shadow: 0 14px 35px rgba(15, 26, 38, 0.08);
@@ -693,6 +738,8 @@ button {
   border-radius: 8px;
   padding: 10px 11px;
   outline: 0;
+  background: var(--panel);
+  color: var(--text);
 }
 
 .auth-submit:disabled {
@@ -707,7 +754,7 @@ button {
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border-radius: 10px;
-  background: #fff;
+  background: var(--panel);
   box-shadow: 0 30px 90px rgba(0, 0, 0, 0.28);
 }
 
@@ -756,15 +803,15 @@ button {
   padding: 0 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
   color: var(--text);
   text-decoration: none;
 }
 
 .image-preview-actions a {
-  background: #080808;
-  border-color: #080808;
-  color: #fff;
+  background: var(--button-dark);
+  border-color: var(--button-dark);
+  color: var(--button-dark-text);
 }
 
 .image-preview-panel img {
@@ -777,7 +824,7 @@ button {
 
 .composer-wrap {
   padding: 10px clamp(12px, 4vw, 42px) 18px;
-  background: linear-gradient(180deg, rgba(246, 247, 249, 0), var(--bg) 24%);
+  background: linear-gradient(180deg, var(--composer-fade), var(--bg) 24%);
 }
 
 .composer {
@@ -842,9 +889,9 @@ button {
 .send-button {
   width: 36px;
   justify-self: end;
-  background: #080808;
-  color: white;
-  border-color: #080808;
+  background: var(--button-dark);
+  color: var(--button-dark-text);
+  border-color: var(--button-dark);
 }
 
 .send-button:disabled {
@@ -1057,7 +1104,7 @@ button {
   }
 
   .topbar {
-    grid-template-columns: 38px 38px minmax(0, 1fr) 38px;
+    grid-template-columns: 38px 38px minmax(0, 1fr) 38px 38px;
     display: grid;
     gap: 6px;
     padding: 0 8px;
