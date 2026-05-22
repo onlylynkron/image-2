@@ -370,7 +370,8 @@ button {
 }
 
 .message.image-only {
-  max-width: 440px;
+  width: min(920px, 100%);
+  max-width: 920px;
 }
 
 .message.user .bubble {
