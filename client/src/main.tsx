@@ -819,8 +819,10 @@ function App() {
               </div>
             </div>
           )}
-          {messages.map((message) => (
-            <article key={message.id} className={`message ${message.role}`}>
+          {messages.map((message) => {
+            const isGeneratedImageMessage = message.role === "assistant" && message.image_ids.length > 0;
+            return (
+            <article key={message.id} className={`message ${message.role} ${isGeneratedImageMessage ? "image-only" : ""}`}>
               {message.meta?.pending ? (
                 <div className="bubble chat-loading" role="status" aria-live="polite">
                   <span />
@@ -828,23 +830,27 @@ function App() {
                   <span />
                 </div>
               ) : (
-                <div className="bubble">
-                  <p>{message.content}</p>
+                <div className={`bubble ${isGeneratedImageMessage ? "image-bubble" : ""}`}>
+                  {!isGeneratedImageMessage && message.content && <p>{message.content}</p>}
                   {message.image_ids.length > 0 && (
-                    <div className="message-images">
+                    <div className={isGeneratedImageMessage ? "image-result" : "message-images"}>
                       {message.image_ids.map((id) => {
                         const image = imageById.get(id);
                         if (!image) return null;
                         return (
                           <button
-                            className={`image-tile ${selectedImages.includes(id) ? "selected" : ""}`}
+                            className={
+                              isGeneratedImageMessage
+                                ? "image-result-tile"
+                                : `image-tile ${selectedImages.includes(id) ? "selected" : ""}`
+                            }
                             key={id}
                             onClick={() => toggleImage(id)}
                             onDoubleClick={() => openPreview(image)}
                             title="双击放大"
                           >
                             <img src={image.url} alt={image.prompt || image.original_name || "会话图片"} />
-                            <span>{selectedImages.includes(id) ? "已选参考" : "选作参考"}</span>
+                            {!isGeneratedImageMessage && <span>{selectedImages.includes(id) ? "已选参考" : "选作参考"}</span>}
                           </button>
                         );
                       })}
@@ -853,7 +859,8 @@ function App() {
                 </div>
               )}
             </article>
-          ))}
+          );
+          })}
           {isCurrentSessionGenerating && (
             <article className="message assistant">
               <div className="image-generating-card" role="status" aria-live="polite">
