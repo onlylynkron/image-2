@@ -181,9 +181,7 @@ function App() {
   const [options, setOptions] = React.useState<ImageOptions>(defaultOptions);
   const [selectedImages, setSelectedImages] = React.useState<string[]>([]);
   const [uploading, setUploading] = React.useState(false);
-  const [generating, setGenerating] = React.useState(false);
-  const [chatting, setChatting] = React.useState(false);
-  const [pendingMessageId, setPendingMessageId] = React.useState("");
+  const [busyBySession, setBusyBySession] = React.useState<Record<string, "chat" | "image">>({});
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [previewImage, setPreviewImage] = React.useState<ImageAsset | null>(null);
@@ -191,6 +189,7 @@ function App() {
   const [authError, setAuthError] = React.useState("");
   const messagesEndRef = React.useRef<HTMLDivElement | null>(null);
   const skipNextLoadRef = React.useRef("");
+  const activeIdRef = React.useRef("");
 
   const isLoggedIn = Boolean(auth?.token);
   const activeSession = sessions.find((session) => session.id === activeId);
@@ -199,10 +198,17 @@ function App() {
     [images]
   );
   const hasMessages = messages.length > 0;
+  const currentBusyType = activeId ? busyBySession[activeId] : undefined;
+  const isCurrentSessionBusy = Boolean(currentBusyType);
+  const isCurrentSessionGenerating = currentBusyType === "image";
 
   React.useEffect(() => {
     void bootstrap();
   }, [auth?.token]);
+
+  React.useEffect(() => {
+    activeIdRef.current = activeId;
+  }, [activeId]);
 
   React.useEffect(() => {
     if (!activeId) return;
@@ -215,7 +221,7 @@ function App() {
 
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, generating]);
+  }, [messages.length, isCurrentSessionGenerating]);
 
   async function bootstrap() {
     if (!auth?.token) {
@@ -269,6 +275,7 @@ function App() {
         image_count: 0
       };
       skipNextLoadRef.current = session.id;
+      activeIdRef.current = session.id;
       setActiveId(session.id);
       return session.id;
     }
@@ -277,11 +284,13 @@ function App() {
       body: JSON.stringify({ title: "未命名会话" })
     }, auth.token);
     skipNextLoadRef.current = session.id;
+    activeIdRef.current = session.id;
     setActiveId(session.id);
     return session.id;
   }
 
   function createSession() {
+    activeIdRef.current = "";
     setActiveId("");
     setMessages([]);
     setImages([]);
@@ -290,6 +299,18 @@ function App() {
     setError("");
     setOptions(defaultOptions);
     setSidebarOpen(false);
+  }
+
+  function markSessionBusy(sessionId: string, type: "chat" | "image") {
+    setBusyBySession((current) => ({ ...current, [sessionId]: type }));
+  }
+
+  function clearSessionBusy(sessionId: string) {
+    setBusyBySession((current) => {
+      if (!current[sessionId]) return current;
+      const { [sessionId]: _removed, ...rest } = current;
+      return rest;
+    });
   }
 
   async function refreshSessions() {
@@ -477,12 +498,11 @@ function App() {
   }
 
   async function sendMessage() {
-    if (!prompt.trim() || generating || chatting) return;
+    if (!prompt.trim() || isCurrentSessionBusy) return;
     if (isImageRequest(prompt.trim(), selectedImages.length)) {
       await generateImage();
       return;
     }
-    setChatting(true);
     setError("");
     const nextPrompt = prompt.trim();
     setPrompt("");
@@ -511,7 +531,7 @@ function App() {
       pendingId = pendingMessage.id;
       optimisticMessages = [...messages, userMessage, pendingMessage];
       setMessages(optimisticMessages);
-      setPendingMessageId(pendingId);
+      markSessionBusy(sessionId, "chat");
       if (!auth?.token) {
         const result = await api.json<{ content: string; meta?: Record<string, unknown> }>("/api/guest/chat", {
           method: "POST",
@@ -527,7 +547,7 @@ function App() {
           meta: result.meta
         };
         const nextMessages = optimisticMessages.map((message) => (message.id === pendingId ? assistantMessage : message));
-        setMessages(nextMessages);
+        if (activeIdRef.current === sessionId) setMessages(nextMessages);
         saveLocalDetail(sessionId, nextMessages, images);
         return;
       }
@@ -538,7 +558,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({ content: nextPrompt })
       }, auth.token);
-      replaceMessage(pendingId, result.assistantMessage);
+      if (activeIdRef.current === sessionId) replaceMessage(pendingId, result.assistantMessage);
       await refreshSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "回复失败");
@@ -552,7 +572,7 @@ function App() {
           created_at: nowIso(),
           meta: { error: true }
         };
-        replaceMessage(pendingId, failedMessage);
+        if (activeIdRef.current === sessionId) replaceMessage(pendingId, failedMessage);
         if (!auth?.token && sessionId) {
           saveLocalDetail(
             sessionId,
@@ -564,14 +584,12 @@ function App() {
         await loadSession(activeId);
       }
     } finally {
-      setChatting(false);
-      setPendingMessageId("");
+      clearSessionBusy(sessionId);
     }
   }
 
   async function generateImage() {
-    if (!prompt.trim() || generating) return;
-    setGenerating(true);
+    if (!prompt.trim() || isCurrentSessionBusy) return;
     setError("");
     const nextPrompt = prompt.trim();
     setPrompt("");
@@ -590,6 +608,7 @@ function App() {
       };
       optimisticMessages = [...messages, userMessage];
       setMessages(optimisticMessages);
+      markSessionBusy(sessionId, "image");
       if (!auth?.token) {
         const result = await api.json<{
           content: string;
@@ -620,9 +639,11 @@ function App() {
         };
         const nextMessages = [...optimisticMessages, assistantMessage];
         const nextImages = [...images, image];
-        setMessages(nextMessages);
-        setImages(nextImages);
-        setSelectedImages([image.id]);
+        if (activeIdRef.current === sessionId) {
+          setMessages(nextMessages);
+          setImages(nextImages);
+          setSelectedImages([image.id]);
+        }
         saveLocalDetail(sessionId, nextMessages, nextImages, options);
         return;
       }
@@ -638,9 +659,11 @@ function App() {
           source_image_ids: selectedImages
         })
       }, auth.token);
-      setMessages((items) => [...items, result.assistantMessage]);
-      setImages((items) => [...items, result.image]);
-      setSelectedImages([result.image.id]);
+      if (activeIdRef.current === sessionId) {
+        setMessages((items) => [...items, result.assistantMessage]);
+        setImages((items) => [...items, result.image]);
+        setSelectedImages([result.image.id]);
+      }
       await refreshSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "生成失败");
@@ -653,10 +676,10 @@ function App() {
         created_at: nowIso(),
         meta: { error: true }
       };
-      setMessages([...optimisticMessages, failedMessage]);
+      if (activeIdRef.current === sessionId) setMessages([...optimisticMessages, failedMessage]);
       if (!auth?.token && sessionId) saveLocalDetail(sessionId, [...optimisticMessages, failedMessage], images, options);
     } finally {
-      setGenerating(false);
+      clearSessionBusy(sessionId);
     }
   }
 
@@ -786,7 +809,7 @@ function App() {
                   sendMessage={sendMessage}
                   uploadFiles={uploadFiles}
                   uploading={uploading}
-                  busy={generating || chatting}
+                  busy={isCurrentSessionBusy}
                   variant="home"
                 />
                 <div className="home-hint">
@@ -831,7 +854,7 @@ function App() {
               )}
             </article>
           ))}
-          {generating && (
+          {isCurrentSessionGenerating && (
             <article className="message assistant">
               <div className="image-generating-card" role="status" aria-live="polite">
                 <div className="image-generating-pattern" />
@@ -858,7 +881,7 @@ function App() {
             sendMessage={sendMessage}
             uploadFiles={uploadFiles}
             uploading={uploading}
-            busy={generating || chatting}
+            busy={isCurrentSessionBusy}
           />
         </footer>}
       </main>
