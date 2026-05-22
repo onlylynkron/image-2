@@ -4,14 +4,12 @@ import {
   MessageSquareX,
   Menu,
   MessageSquarePlus,
-  Mic,
   Plus,
   RefreshCw,
   Send,
   Settings,
   Sparkles,
   Trash2,
-  Volume2,
   X
 } from "lucide-react";
 import "./styles.css";
@@ -490,16 +488,13 @@ function PromptBox({
           }}
         />
       </div>
-      <button className="voice-button" type="button" title="语音输入">
-        <Mic size={18} strokeWidth={2.1} />
-      </button>
       <button
         className="send-button"
         disabled={!prompt.trim() || generating}
         onClick={() => void generate()}
         title="发送"
       >
-        {prompt.trim() ? <Send size={20} /> : <Volume2 size={19} />}
+        <Send size={19} />
       </button>
     </div>
   );

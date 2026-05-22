@@ -86,7 +86,6 @@ button {
 .icon-button,
 .send-button,
 .upload-button,
-.voice-button,
 .image-tile,
 .reference-strip button {
   border: 1px solid var(--line);
@@ -369,7 +368,7 @@ button {
 
 .composer {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 34px 40px;
+  grid-template-columns: 34px minmax(0, 1fr) 40px;
   align-items: center;
   gap: 4px;
   max-width: 920px;
@@ -412,7 +411,6 @@ button {
 }
 
 .upload-button,
-.voice-button,
 .send-button {
   height: 36px;
   display: grid;
@@ -432,14 +430,8 @@ button {
 }
 
 .send-button:disabled {
-  opacity: 1;
-  cursor: default;
-}
-
-.voice-button {
-  border-color: transparent;
-  background: transparent;
-  color: #050505;
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .home-hint {
@@ -608,7 +600,7 @@ button {
   }
 
   .composer {
-    grid-template-columns: 32px minmax(0, 1fr) 32px 36px;
+    grid-template-columns: 32px minmax(0, 1fr) 36px;
     gap: 6px;
     min-height: 54px;
     padding: 6px 7px 6px 12px;
