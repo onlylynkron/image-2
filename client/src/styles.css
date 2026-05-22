@@ -370,11 +370,55 @@ button {
 }
 
 .message.image-only {
-  max-width: 520px;
+  max-width: 440px;
 }
 
 .message.user .bubble {
   background: #dff3ef;
+}
+
+.message.image-edit-request .bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  max-width: min(360px, 100%);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.message.image-edit-request .bubble p {
+  padding: 11px 18px;
+  border-radius: 999px;
+  background: #f4f4f5;
+  color: #111827;
+  line-height: 1.45;
+}
+
+.message-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+  padding-right: 8px;
+}
+
+.message-actions button {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  color: #606671;
+  background: transparent;
+}
+
+.message-actions button:hover {
+  color: #111827;
+  background: #eef0f2;
 }
 
 .bubble {
@@ -430,7 +474,7 @@ button {
 
 .image-generating-card {
   position: relative;
-  width: min(420px, calc(100vw - 340px));
+  width: min(360px, calc(100vw - 340px));
   max-width: 100%;
   aspect-ratio: 1;
   overflow: hidden;
@@ -490,8 +534,25 @@ button {
   margin-top: 12px;
 }
 
+.message.image-edit-request .message-images {
+  order: -1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  width: auto;
+  margin: 0 20px 8px 0;
+}
+
+.message.image-edit-request .message-images::before {
+  content: "↪";
+  color: #767d86;
+  font-size: 18px;
+  line-height: 1;
+}
+
 .image-bubble {
-  max-width: min(420px, 100%);
+  max-width: min(360px, 100%);
   padding: 0;
   border: 0;
   background: transparent;
@@ -500,7 +561,7 @@ button {
 
 .image-result {
   display: grid;
-  width: min(420px, 100%);
+  width: min(360px, 100%);
 }
 
 .image-tile {
@@ -547,6 +608,33 @@ button {
 .image-tile span {
   font-size: 12px;
   color: var(--muted);
+}
+
+.message.image-edit-request .image-tile {
+  width: 42px;
+  height: 32px;
+  padding: 0;
+  display: block;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+}
+
+.message.image-edit-request .image-tile.selected {
+  outline: 0;
+}
+
+.message.image-edit-request .image-tile img {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.message.image-edit-request .image-tile span {
+  display: none;
 }
 
 .image-preview {
@@ -942,7 +1030,7 @@ button {
   }
 
   .image-generating-card {
-    width: min(420px, 100%);
+    width: min(360px, 100%);
   }
 
   .composer-wrap {

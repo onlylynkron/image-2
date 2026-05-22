@@ -1,7 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import {
+  Copy,
   Download,
+  Pencil,
   LogOut,
   MessageSquareX,
   Menu,
@@ -697,6 +699,19 @@ function App() {
     setPreviewImage(null);
   }
 
+  async function copyMessage(content: string) {
+    if (!content.trim()) return;
+    try {
+      await navigator.clipboard?.writeText(content);
+    } catch {
+      // Clipboard permissions can be unavailable outside secure browser contexts.
+    }
+  }
+
+  function editMessage(content: string) {
+    setPrompt(content);
+  }
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${sidebarOpen ? "is-open" : ""}`}>
@@ -821,8 +836,12 @@ function App() {
           )}
           {messages.map((message) => {
             const isGeneratedImageMessage = message.role === "assistant" && message.image_ids.length > 0;
+            const isUserImageEditMessage = message.role === "user" && message.image_ids.length > 0;
             return (
-            <article key={message.id} className={`message ${message.role} ${isGeneratedImageMessage ? "image-only" : ""}`}>
+            <article
+              key={message.id}
+              className={`message ${message.role} ${isGeneratedImageMessage ? "image-only" : ""} ${isUserImageEditMessage ? "image-edit-request" : ""}`}
+            >
               {message.meta?.pending ? (
                 <div className="bubble chat-loading" role="status" aria-live="polite">
                   <span />
@@ -854,6 +873,16 @@ function App() {
                           </button>
                         );
                       })}
+                    </div>
+                  )}
+                  {isUserImageEditMessage && (
+                    <div className="message-actions" aria-label="消息操作">
+                      <button onClick={() => void copyMessage(message.content)} title="复制">
+                        <Copy size={16} />
+                      </button>
+                      <button onClick={() => editMessage(message.content)} title="编辑">
+                        <Pencil size={16} />
+                      </button>
                     </div>
                   )}
                 </div>
