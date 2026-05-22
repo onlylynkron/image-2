@@ -82,7 +82,7 @@ interface LocalSnapshot {
 }
 
 const defaultOptions: ImageOptions = {
-  quality: "auto",
+  quality: "high",
   size: "1024x1024",
   format: "png",
   compression: 85

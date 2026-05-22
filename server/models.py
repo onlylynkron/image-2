@@ -46,7 +46,7 @@ class UserProfile(BaseModel):
 
 
 class ImageOptions(BaseModel):
-    quality: ImageQuality = "auto"
+    quality: ImageQuality = "high"
     size: ImageSize = "1024x1024"
     format: ImageFormat = "png"
     compression: int = Field(default=85, ge=0, le=100)
