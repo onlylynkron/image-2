@@ -6,6 +6,7 @@ import {
   Menu,
   MessageSquarePlus,
   Mic,
+  Plus,
   RefreshCw,
   Send,
   Settings,
@@ -484,7 +485,7 @@ function PromptBox({
   return (
     <div className={`composer ${variant === "home" ? "home-composer" : ""}`}>
       <label className="upload-button" title="上传参考图">
-        <ImagePlus size={20} />
+        <Plus size={21} strokeWidth={1.9} />
         <input
           type="file"
           accept="image/png,image/jpeg,image/webp"
@@ -493,19 +494,21 @@ function PromptBox({
           disabled={uploading || generating}
         />
       </label>
-      <textarea
-        value={prompt}
-        placeholder="有问题，尽管问"
-        onChange={(event) => setPrompt(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void generate();
-          }
-        }}
-      />
+      <div className="prompt-field">
+        <textarea
+          value={prompt}
+          placeholder="有问题，尽管问"
+          onChange={(event) => setPrompt(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              void generate();
+            }
+          }}
+        />
+      </div>
       <button className="voice-button" type="button" title="语音输入">
-        <Mic size={18} />
+        <Mic size={18} strokeWidth={2.1} />
       </button>
       <button
         className="send-button"
