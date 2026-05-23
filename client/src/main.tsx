@@ -1166,7 +1166,7 @@ function App() {
                 </div>
               ) : (
                 <div className={`bubble ${isGeneratedImageMessage ? "image-bubble" : ""}`}>
-                  {!isGeneratedImageMessage && message.content && <p>{message.content}</p>}
+                  {!isGeneratedImageMessage && message.content && <MarkdownMessage content={message.content} />}
                   {message.image_ids.length > 0 && (
                     <div className={isGeneratedImageMessage ? "image-result" : "message-images"}>
                       {message.image_ids.map((id) => {
@@ -1507,6 +1507,158 @@ function PromptBox({
       </button>
     </div>
   );
+}
+
+function MarkdownMessage({ content }: { content: string }) {
+  const blocks = parseMarkdownBlocks(content);
+  return (
+    <div className="markdown-message">
+      {blocks.map((block, index) => {
+        if (block.type === "code") {
+          return (
+            <pre key={index}>
+              <code>{block.content}</code>
+            </pre>
+          );
+        }
+        if (block.type === "ul" || block.type === "ol") {
+          const ListTag = block.type === "ul" ? "ul" : "ol";
+          return (
+            <ListTag key={index}>
+              {block.items.map((item, itemIndex) => (
+                <li key={itemIndex}>{renderInlineMarkdown(item)}</li>
+              ))}
+            </ListTag>
+          );
+        }
+        if (block.type === "heading") {
+          if (block.level === 1) return <h1 key={index}>{renderInlineMarkdown(block.content)}</h1>;
+          if (block.level === 2) return <h2 key={index}>{renderInlineMarkdown(block.content)}</h2>;
+          return <h3 key={index}>{renderInlineMarkdown(block.content)}</h3>;
+        }
+        if (block.type === "paragraph") {
+          return <p key={index}>{renderInlineMarkdown(block.content)}</p>;
+        }
+        return null;
+      })}
+    </div>
+  );
+}
+
+type MarkdownBlock =
+  | { type: "paragraph"; content: string }
+  | { type: "heading"; level: 1 | 2 | 3; content: string }
+  | { type: "code"; content: string }
+  | { type: "ul" | "ol"; items: string[] };
+
+function parseMarkdownBlocks(content: string): MarkdownBlock[] {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blocks: MarkdownBlock[] = [];
+  let paragraph: string[] = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    blocks.push({ type: "paragraph", content: paragraph.join("\n").trim() });
+    paragraph = [];
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const trimmed = line.trim();
+
+    if (trimmed.startsWith("```")) {
+      flushParagraph();
+      const codeLines: string[] = [];
+      index += 1;
+      while (index < lines.length && !lines[index].trim().startsWith("```")) {
+        codeLines.push(lines[index]);
+        index += 1;
+      }
+      blocks.push({ type: "code", content: codeLines.join("\n") });
+      continue;
+    }
+
+    if (!trimmed) {
+      flushParagraph();
+      continue;
+    }
+
+    const heading = /^(#{1,3})\s+(.+)$/.exec(trimmed);
+    if (heading) {
+      flushParagraph();
+      blocks.push({
+        type: "heading",
+        level: heading[1].length as 1 | 2 | 3,
+        content: heading[2]
+      });
+      continue;
+    }
+
+    const unordered = /^[-*+]\s+(.+)$/.exec(trimmed);
+    if (unordered) {
+      flushParagraph();
+      const items = [unordered[1]];
+      while (index + 1 < lines.length) {
+        const next = /^[-*+]\s+(.+)$/.exec(lines[index + 1].trim());
+        if (!next) break;
+        items.push(next[1]);
+        index += 1;
+      }
+      blocks.push({ type: "ul", items });
+      continue;
+    }
+
+    const ordered = /^\d+[.)]\s+(.+)$/.exec(trimmed);
+    if (ordered) {
+      flushParagraph();
+      const items = [ordered[1]];
+      while (index + 1 < lines.length) {
+        const next = /^\d+[.)]\s+(.+)$/.exec(lines[index + 1].trim());
+        if (!next) break;
+        items.push(next[1]);
+        index += 1;
+      }
+      blocks.push({ type: "ol", items });
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  return blocks;
+}
+
+function renderInlineMarkdown(text: string) {
+  const nodes: React.ReactNode[] = [];
+  const pattern = /(`[^`]+`|\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/g;
+  let cursor = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text))) {
+    if (match.index > cursor) nodes.push(text.slice(cursor, match.index));
+    const token = match[0];
+    const key = nodes.length;
+    if (token.startsWith("`")) {
+      nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
+    } else if (token.startsWith("**") || token.startsWith("__")) {
+      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
+    } else if (token.startsWith("*") || token.startsWith("_")) {
+      nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
+    } else {
+      const link = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(token);
+      const href = link?.[2] || "";
+      nodes.push(
+        <a key={key} href={href} target="_blank" rel="noreferrer">
+          {link?.[1] || token}
+        </a>
+      );
+    }
+    cursor = match.index + token.length;
+  }
+
+  if (cursor < text.length) nodes.push(text.slice(cursor));
+  return nodes;
 }
 
 function ReferenceStrip({
