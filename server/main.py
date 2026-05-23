@@ -37,7 +37,7 @@ config = load_config()
 store = create_store(config)
 store.init()
 
-app = FastAPI(title="Image2 Studio API")
+app = FastAPI(title="Image Studio API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

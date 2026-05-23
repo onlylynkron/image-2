@@ -1,4 +1,4 @@
-# Image2 Studio
+# Image Studio
 
 本地优先的 GPT Image 会话式生图与编辑工具。
 

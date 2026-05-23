@@ -811,7 +811,7 @@ function App() {
         <div className="sidebar-top">
           <button className="brand-button" onClick={createSession}>
             <Sparkles size={19} />
-            <span>Image2 Studio</span>
+            <span>Image Studio</span>
           </button>
           <button className="icon-button mobile-only" onClick={() => setSidebarOpen(false)} title="关闭">
             <X size={18} />
@@ -910,7 +910,7 @@ function App() {
             <div className="home-state">
               <div className="home-brand">
                 <Sparkles size={18} />
-                <span>Image2 Studio</span>
+                <span>Image Studio</span>
               </div>
               <div className="home-copy">
                 <h1>把想法变成图像</h1>
