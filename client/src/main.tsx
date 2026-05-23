@@ -109,6 +109,23 @@ function normalizeOptions(options?: Partial<ImageOptions> | null): ImageOptions 
 const LOCAL_HISTORY_KEY = "image2.localHistory.v1";
 const AUTH_KEY = "image2.auth.v1";
 const THEME_KEY = "image2.theme.v1";
+const authText = {
+  loginTitle: "\u6b22\u8fce\u56de\u6765",
+  registerTitle: "\u521b\u5efa\u8d26\u53f7",
+  loginIntro: "\u767b\u5f55\u540e\u53ef\u5728\u591a\u8bbe\u5907\u540c\u6b65 Image Studio \u4f1a\u8bdd\u3002",
+  registerIntro: "\u6ce8\u518c\u540e\u4f1a\u628a\u672c\u5730\u5386\u53f2\u540c\u6b65\u5230\u4f60\u7684\u8d26\u53f7\u3002",
+  modeLabel: "\u767b\u5f55\u65b9\u5f0f",
+  login: "\u767b\u5f55",
+  register: "\u6ce8\u518c",
+  loadingGoogle: "\u6b63\u5728\u52a0\u8f7d Google \u767b\u5f55...",
+  or: "\u6216",
+  username: "\u7528\u6237\u540d",
+  password: "\u5bc6\u7801",
+  usernamePlaceholder: "\u81f3\u5c11 3 \u4f4d",
+  passwordPlaceholder: "\u81f3\u5c11 6 \u4f4d",
+  googleLoadFailed: "Google \u767b\u5f55\u52a0\u8f7d\u5931\u8d25",
+  googleFailed: "Google \u767b\u5f55\u5931\u8d25"
+};
 
 const api = {
   async json<T>(url: string, init?: RequestInit, token?: string): Promise<T> {
@@ -340,7 +357,7 @@ function App() {
       const existing = document.querySelector<HTMLScriptElement>("script[data-google-identity]");
       if (existing) {
         existing.addEventListener("load", () => resolve(), { once: true });
-        existing.addEventListener("error", () => reject(new Error("Google ???? to load.")), { once: true });
+        existing.addEventListener("error", () => reject(new Error(authText.googleLoadFailed)), { once: true });
         return;
       }
       const script = document.createElement("script");
@@ -349,7 +366,7 @@ function App() {
       script.defer = true;
       script.dataset.googleIdentity = "true";
       script.onload = () => resolve();
-      script.onerror = () => reject(new Error("Google ???? to load."));
+      script.onerror = () => reject(new Error(authText.googleLoadFailed));
       document.head.appendChild(script);
     });
   }
@@ -595,7 +612,7 @@ function App() {
       setAuthForm({ username: "", password: "" });
       await syncLocalHistory(result.token);
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : "Google ????");
+      setAuthError(err instanceof Error ? err.message : authText.googleFailed);
     }
   }
 
@@ -1233,11 +1250,11 @@ function App() {
               <button className="icon-button auth-close" onClick={() => setAuthOpen(false)} title="Close">
                 <X size={18} />
               </button>
-              <h2>{authMode === "login" ? "????" : "????"}</h2>
-              <p>{authMode === "login" ? "?????????? Image Studio ???" : "?????????????????"}</p>
+              <h2>{authMode === "login" ? authText.loginTitle : authText.registerTitle}</h2>
+              <p>{authMode === "login" ? authText.loginIntro : authText.registerIntro}</p>
             </div>
 
-            <div className="auth-tabs" role="tablist" aria-label="????">
+            <div className="auth-tabs" role="tablist" aria-label={authText.modeLabel}>
               <button
                 type="button"
                 className={authMode === "login" ? "active" : ""}
@@ -1246,7 +1263,7 @@ function App() {
                   setAuthError("");
                 }}
               >
-                ??
+                {authText.login}
               </button>
               <button
                 type="button"
@@ -1256,36 +1273,36 @@ function App() {
                   setAuthError("");
                 }}
               >
-                ??
+                {authText.register}
               </button>
             </div>
 
             {publicConfig?.google_auth_enabled && (
               <div className="google-auth-wrap">
                 <div id="google-signin-button" className="google-auth-button" />
-                {!googleReady && <span>???? Google ??...</span>}
+                {!googleReady && <span>{authText.loadingGoogle}</span>}
               </div>
             )}
 
-            {publicConfig?.google_auth_enabled && <div className="auth-divider"><span>?</span></div>}
+            {publicConfig?.google_auth_enabled && <div className="auth-divider"><span>{authText.or}</span></div>}
 
             <div className="auth-form-grid">
               <label className="auth-field">
-                <span>???</span>
+                <span>{authText.username}</span>
                 <input
                   value={authForm.username}
                   onChange={(event) => setAuthForm((form) => ({ ...form, username: event.target.value }))}
-                  placeholder="?? 3 ?"
+                  placeholder={authText.usernamePlaceholder}
                   autoComplete="username"
                 />
               </label>
               <label className="auth-field">
-                <span>??</span>
+                <span>{authText.password}</span>
                 <input
                   type="password"
                   value={authForm.password}
                   onChange={(event) => setAuthForm((form) => ({ ...form, password: event.target.value }))}
-                  placeholder="?? 6 ?"
+                  placeholder={authText.passwordPlaceholder}
                   autoComplete={authMode === "login" ? "current-password" : "new-password"}
                 />
               </label>
@@ -1297,7 +1314,7 @@ function App() {
               disabled={!authForm.username.trim() || !authForm.password.trim()}
               onClick={() => void submitAuth()}
             >
-              {authMode === "login" ? "??" : "??"}
+              {authMode === "login" ? authText.login : authText.register}
             </button>
           </div>
         </div>
