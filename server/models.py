@@ -17,6 +17,7 @@ class ServerConfig(BaseModel):
     base_url: str = ""
     image_model: str = "gpt-image-2"
     text_model: str = "gpt-5.2"
+    google_client_id: str = ""
     data_dir: str = "./data"
     database_url: str = ""
     history_compression_threshold: int = 12000
@@ -28,6 +29,8 @@ class PublicConfig(BaseModel):
     image_model: str = "gpt-image-2"
     text_model: str = "gpt-5.2"
     has_api_key: bool = False
+    google_auth_enabled: bool = False
+    google_client_id: str = ""
     storage_backend: str = "json"
 
 
@@ -36,6 +39,7 @@ class ServerConfigPatch(BaseModel):
     base_url: str | None = None
     image_model: str | None = None
     text_model: str | None = None
+    google_client_id: str | None = None
 
 
 class UserProfile(BaseModel):
@@ -116,6 +120,10 @@ class SessionDetail(BaseModel):
 class AuthPayload(BaseModel):
     username: str
     password: str
+
+
+class GoogleAuthPayload(BaseModel):
+    credential: str
 
 
 class AuthUser(BaseModel):

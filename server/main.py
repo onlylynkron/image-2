@@ -7,7 +7,6 @@ import json
 import secrets
 from pathlib import Path
 from typing import Iterator
-
 import httpx
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
@@ -23,6 +22,7 @@ from .models import (
     AuthUser,
     ChatSession,
     GeneratePayload,
+    GoogleAuthPayload,
     GuestChatPayload,
     GuestGeneratePayload,
     ImageAsset,
@@ -139,6 +139,23 @@ def login(payload: AuthPayload):
     user = store.find_user_by_username(username)
     if not user or not _verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid username or password.")
+    return AuthResponse(token=_make_token(user.id), user=_auth_user(user))
+
+
+@app.post("/api/auth/google", response_model=AuthResponse)
+def google_login(payload: GoogleAuthPayload):
+    runtime_config = store.runtime_config()
+    if not runtime_config.google_client_id:
+        raise HTTPException(status_code=400, detail="Google login is not configured.")
+    claims = verify_google_credential(payload.credential, runtime_config.google_client_id)
+    subject = claims.get("sub")
+    if not subject:
+        raise HTTPException(status_code=401, detail="Invalid Google credential.")
+    email = str(claims.get("email") or "").strip().lower()
+    name = str(claims.get("name") or "").strip()
+    username = f"google:{subject}"
+    display_name = name or email or "Google user"
+    user = store.upsert_oauth_user(username, display_name)
     return AuthResponse(token=_make_token(user.id), user=_auth_user(user))
 
 
@@ -742,6 +759,24 @@ def extract_response_stream_delta(event: dict) -> str:
                 chunks.append(choice["text"])
         return "".join(chunks)
     return ""
+
+
+def verify_google_credential(credential: str, client_id: str) -> dict:
+    if not credential:
+        raise HTTPException(status_code=400, detail="Missing Google credential.")
+    with httpx.Client(timeout=20) as client:
+        response = client.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"id_token": credential},
+        )
+    if response.status_code != 200:
+        raise HTTPException(status_code=401, detail="Invalid Google credential.")
+    claims = response.json()
+    if claims.get("aud") != client_id:
+        raise HTTPException(status_code=401, detail="Google credential audience mismatch.")
+    if claims.get("iss") not in {"accounts.google.com", "https://accounts.google.com"}:
+        raise HTTPException(status_code=401, detail="Invalid Google issuer.")
+    return claims
 
 
 def extract_response_text(data: dict) -> str:

@@ -82,6 +82,11 @@ interface AuthState {
   user: AuthUser;
 }
 
+interface PublicConfig {
+  google_auth_enabled: boolean;
+  google_client_id: string;
+}
+
 interface LocalSnapshot {
   sessions: SessionItem[];
   details: Record<string, { session: SessionItem; messages: ChatMessage[]; images: ImageAsset[] }>;
@@ -126,6 +131,19 @@ const api = {
     return payload as T;
   }
 };
+
+declare global {
+  interface Window {
+    google?: {
+      accounts?: {
+        id?: {
+          initialize: (options: { client_id: string; callback: (response: { credential: string }) => void }) => void;
+          renderButton: (element: HTMLElement | null, options: Record<string, string | number>) => void;
+        };
+      };
+    };
+  }
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -200,6 +218,8 @@ function App() {
   const [authOpen, setAuthOpen] = React.useState(false);
   const [authMode, setAuthMode] = React.useState<"login" | "register">("login");
   const [authForm, setAuthForm] = React.useState({ username: "", password: "" });
+  const [publicConfig, setPublicConfig] = React.useState<PublicConfig | null>(null);
+  const [googleReady, setGoogleReady] = React.useState(false);
   const [sessions, setSessions] = React.useState<SessionItem[]>([]);
   const [activeId, setActiveId] = React.useState("");
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
@@ -237,6 +257,37 @@ function App() {
   }, [auth?.token]);
 
   React.useEffect(() => {
+    void loadPublicConfig();
+  }, []);
+
+  React.useEffect(() => {
+    if (!authOpen || !publicConfig?.google_auth_enabled || !publicConfig.google_client_id) return;
+    let cancelled = false;
+    loadGoogleIdentity().then(() => {
+      if (cancelled) return;
+      const google = window.google?.accounts?.id;
+      if (!google) return;
+      const buttonHost = document.getElementById("google-signin-button");
+      buttonHost?.replaceChildren();
+      google.initialize({
+        client_id: publicConfig.google_client_id,
+        callback: (response) => void submitGoogleAuth(response.credential)
+      });
+      google.renderButton(buttonHost, {
+        theme: "outline",
+        size: "large",
+        shape: "pill",
+        text: authMode === "login" ? "signin_with" : "continue_with",
+        width: 320
+      });
+      setGoogleReady(true);
+    }).catch(() => setGoogleReady(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [authOpen, authMode, publicConfig?.google_auth_enabled, publicConfig?.google_client_id]);
+
+  React.useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem(THEME_KEY, theme);
   }, [theme]);
@@ -272,6 +323,35 @@ function App() {
     const sessionList = await api.json<SessionItem[]>("/api/sessions", undefined, auth.token);
     setSessions(sessionList);
     setActiveId(sessionList[0]?.id || "");
+  }
+
+  async function loadPublicConfig() {
+    try {
+      const result = await api.json<PublicConfig>("/api/config");
+      setPublicConfig(result);
+    } catch {
+      setPublicConfig({ google_auth_enabled: false, google_client_id: "" });
+    }
+  }
+
+  function loadGoogleIdentity() {
+    if (window.google?.accounts?.id) return Promise.resolve();
+    return new Promise<void>((resolve, reject) => {
+      const existing = document.querySelector<HTMLScriptElement>("script[data-google-identity]");
+      if (existing) {
+        existing.addEventListener("load", () => resolve(), { once: true });
+        existing.addEventListener("error", () => reject(new Error("Google ???? to load.")), { once: true });
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      script.defer = true;
+      script.dataset.googleIdentity = "true";
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error("Google ???? to load."));
+      document.head.appendChild(script);
+    });
   }
 
   function mergePendingMessages(baseMessages: ChatMessage[], sessionId: string) {
@@ -498,6 +578,24 @@ function App() {
       await syncLocalHistory(result.token);
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : "登录失败");
+    }
+  }
+
+  async function submitGoogleAuth(credential: string) {
+    if (!credential) return;
+    setAuthError("");
+    try {
+      const result = await api.json<AuthState>("/api/auth/google", {
+        method: "POST",
+        body: JSON.stringify({ credential })
+      });
+      writeAuth(result);
+      setAuth(result);
+      setAuthOpen(false);
+      setAuthForm({ username: "", password: "" });
+      await syncLocalHistory(result.token);
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : "Google ????");
     }
   }
 
@@ -1128,45 +1226,78 @@ function App() {
       {authOpen && (
         <div className="auth-modal" role="dialog" aria-modal="true" onClick={() => setAuthOpen(false)}>
           <div className="auth-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="panel-head">
-              <h2>{authMode === "login" ? "登录账号" : "注册账号"}</h2>
-              <button className="icon-button" onClick={() => setAuthOpen(false)} title="关闭">
+            <div className="auth-hero">
+              <div className="auth-mark">
+                <Sparkles size={20} />
+              </div>
+              <button className="icon-button auth-close" onClick={() => setAuthOpen(false)} title="Close">
                 <X size={18} />
               </button>
+              <h2>{authMode === "login" ? "????" : "????"}</h2>
+              <p>{authMode === "login" ? "?????????? Image Studio ???" : "?????????????????"}</p>
             </div>
-            <label className="auth-field">
-              <span>用户名</span>
-              <input
-                value={authForm.username}
-                onChange={(event) => setAuthForm((form) => ({ ...form, username: event.target.value }))}
-                placeholder="至少 3 位"
-              />
-            </label>
-            <label className="auth-field">
-              <span>密码</span>
-              <input
-                type="password"
-                value={authForm.password}
-                onChange={(event) => setAuthForm((form) => ({ ...form, password: event.target.value }))}
-                placeholder="至少 6 位"
-              />
-            </label>
-            {authError && <div className="error-line">{authError}</div>}
+
+            <div className="auth-tabs" role="tablist" aria-label="????">
+              <button
+                type="button"
+                className={authMode === "login" ? "active" : ""}
+                onClick={() => {
+                  setAuthMode("login");
+                  setAuthError("");
+                }}
+              >
+                ??
+              </button>
+              <button
+                type="button"
+                className={authMode === "register" ? "active" : ""}
+                onClick={() => {
+                  setAuthMode("register");
+                  setAuthError("");
+                }}
+              >
+                ??
+              </button>
+            </div>
+
+            {publicConfig?.google_auth_enabled && (
+              <div className="google-auth-wrap">
+                <div id="google-signin-button" className="google-auth-button" />
+                {!googleReady && <span>???? Google ??...</span>}
+              </div>
+            )}
+
+            {publicConfig?.google_auth_enabled && <div className="auth-divider"><span>?</span></div>}
+
+            <div className="auth-form-grid">
+              <label className="auth-field">
+                <span>???</span>
+                <input
+                  value={authForm.username}
+                  onChange={(event) => setAuthForm((form) => ({ ...form, username: event.target.value }))}
+                  placeholder="?? 3 ?"
+                  autoComplete="username"
+                />
+              </label>
+              <label className="auth-field">
+                <span>??</span>
+                <input
+                  type="password"
+                  value={authForm.password}
+                  onChange={(event) => setAuthForm((form) => ({ ...form, password: event.target.value }))}
+                  placeholder="?? 6 ?"
+                  autoComplete={authMode === "login" ? "current-password" : "new-password"}
+                />
+              </label>
+            </div>
+
+            {authError && <div className="error-line auth-error">{authError}</div>}
             <button
               className="auth-submit"
               disabled={!authForm.username.trim() || !authForm.password.trim()}
               onClick={() => void submitAuth()}
             >
-              {authMode === "login" ? "登录" : "注册"}
-            </button>
-            <button
-              className="auth-switch"
-              onClick={() => {
-                setAuthMode(authMode === "login" ? "register" : "login");
-                setAuthError("");
-              }}
-            >
-              {authMode === "login" ? "没有账号？注册" : "已有账号？登录"}
+              {authMode === "login" ? "??" : "??"}
             </button>
           </div>
         </div>

@@ -40,6 +40,7 @@ class Store(Protocol):
     def public_config(self) -> PublicConfig: ...
     def update_config(self, patch: ServerConfigPatch) -> PublicConfig: ...
     def create_user(self, username: str, password_hash: str) -> UserProfile: ...
+    def upsert_oauth_user(self, username: str, display_name: str) -> UserProfile: ...
     def find_user_by_username(self, username: str) -> UserProfile | None: ...
     def get_user(self, user_id: str) -> UserProfile | None: ...
     def list_sessions(self, user_id: str | None = None) -> list[dict]: ...
@@ -117,6 +118,7 @@ class JsonStore:
             update={
                 **disk,
                 "api_key": disk.get("api_key") or self.config.api_key,
+                "google_client_id": disk.get("google_client_id") or self.config.google_client_id,
                 "data_dir": self.config.data_dir,
                 "database_url": self.config.database_url,
             }
@@ -129,6 +131,8 @@ class JsonStore:
             image_model=config.image_model,
             text_model=config.text_model,
             has_api_key=bool(config.api_key),
+            google_auth_enabled=bool(config.google_client_id),
+            google_client_id=config.google_client_id,
             storage_backend=self.backend,
         )
 
@@ -153,6 +157,25 @@ class JsonStore:
             created_at=stamp,
             updated_at=stamp,
         )
+        db.user = user
+        self.write_db(db)
+        return user
+
+    def upsert_oauth_user(self, username: str, display_name: str) -> UserProfile:
+        db = self.read_db()
+        existing = db.user if db.user.username == username else None
+        stamp = now_iso()
+        if existing:
+            user = existing.model_copy(update={"display_name": display_name or existing.display_name, "updated_at": stamp})
+        else:
+            user = UserProfile(
+                id=str(uuid4()),
+                username=username,
+                display_name=display_name or username,
+                password_hash=None,
+                created_at=stamp,
+                updated_at=stamp,
+            )
         db.user = user
         self.write_db(db)
         return user
@@ -415,6 +438,7 @@ class PostgresStore:
             update={
                 **disk,
                 "api_key": disk.get("api_key") or self.config.api_key,
+                "google_client_id": disk.get("google_client_id") or self.config.google_client_id,
                 "data_dir": self.config.data_dir,
                 "database_url": self.config.database_url,
             }
@@ -427,6 +451,8 @@ class PostgresStore:
             image_model=config.image_model,
             text_model=config.text_model,
             has_api_key=bool(config.api_key),
+            google_auth_enabled=bool(config.google_client_id),
+            google_client_id=config.google_client_id,
             storage_backend=self.backend,
         )
 
@@ -453,6 +479,38 @@ class PostgresStore:
             username=username,
             display_name=username,
             password_hash=password_hash,
+            created_at=stamp,
+            updated_at=stamp,
+        )
+        with self.connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO app_user (id, username, display_name, password_hash, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (user.id, user.username, user.display_name, user.password_hash, user.created_at, user.updated_at),
+                )
+        return user
+
+    def upsert_oauth_user(self, username: str, display_name: str) -> UserProfile:
+        existing = self.find_user_by_username(username)
+        stamp = now_iso()
+        if existing:
+            user = existing.model_copy(update={"display_name": display_name or existing.display_name, "updated_at": stamp})
+            with self.connect() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE app_user SET display_name = %s, updated_at = %s WHERE id = %s",
+                        (user.display_name, user.updated_at, user.id),
+                    )
+            return user
+
+        user = UserProfile(
+            id=str(uuid4()),
+            username=username,
+            display_name=display_name or username,
+            password_hash=None,
             created_at=stamp,
             updated_at=stamp,
         )

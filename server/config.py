@@ -25,6 +25,7 @@ def load_config() -> ServerConfig:
         base_url=os.getenv("OPENAI_BASE_URL", ""),
         image_model=os.getenv("GPT_IMAGE_MODEL", "gpt-image-2"),
         text_model=os.getenv("OPENAI_TEXT_MODEL", "gpt-5.2"),
+        google_client_id=os.getenv("GOOGLE_CLIENT_ID", ""),
         data_dir=str(data_dir),
         database_url=os.getenv("DATABASE_URL", ""),
         history_compression_threshold=_positive_int("HISTORY_COMPRESSION_THRESHOLD", 12000),
