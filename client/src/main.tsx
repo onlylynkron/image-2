@@ -218,8 +218,15 @@ const chatIntentRules = [
 
 const forcedImageIntentRules = [
   new RegExp("\\u91cd\\u65b0\\u751f\\u6210|\\u91cd\\u65b0\\u51fa\\u56fe|\\u91cd\\u65b0\\u751f\\u56fe|\\u518d\\u6b21\\u751f\\u6210|\\u518d\\u751f\\u6210\\u4e00\\u6b21|\\u91cd\\u65b0\\u753b|\\u91cd\\u65b0\\u7ed8\\u5236|\\u91cd\\u65b0\\u6e32\\u67d3", "i"),
-  new RegExp("(\\u6309|\\u7528|\\u6839\\u636e|\\u57fa\\u4e8e).*(\\u8fd9\\u4e2a|\\u8fd9\\u6bb5|\\u6b64|\\u4e0a\\u9762|\\u4ee5\\u4e0a).*(\\u63d0\\u793a\\u8bcd|prompt).*(\\u751f\\u6210|\\u751f\\u56fe|\\u51fa\\u56fe|\\u753b|\\u7ed8\\u5236|\\u6e32\\u67d3|\\u5236\\u4f5c)", "i"),
+  new RegExp("(\\u6309|\\u7528|\\u6839\\u636e|\\u57fa\\u4e8e).*(\\u8fd9\\u4e2a|\\u8fd9\\u6bb5|\\u6b64|\\u4e0a\\u9762|\\u4ee5\\u4e0a).*(\\u63d0\\u793a\\u8bcd|prompt).*(\\u751f\\u6210|\\u751f\\u56fe|\\u51fa\\u56fe|\\u753b|\\u7ed8\\u5236|\\u6e32\\u67d3|\\u5236\\u4f5c|\\u4fee\\u6539|\\u7f16\\u8f91|\\u4fee\\u56fe|\\u5904\\u7406)", "i"),
+  new RegExp("(\\u4fee\\u6539|\\u7f16\\u8f91|\\u4fee\\u56fe|\\u5904\\u7406|\\u6539\\u4e00\\u4e0b|\\u8c03\\u6574|\\u53bb\\u9664|\\u53bb\\u6389|\\u5220\\u9664|\\u4fee\\u590d|\\u66ff\\u6362|\\u6362).*(\\u4e0a\\u9762|\\u4e0a\\u4e00\\u5f20|\\u524d\\u9762|\\u521a\\u624d|\\u8fd9\\u5f20|\\u8fd9\\u4e2a|\\u56fe\\u7247|\\u56fe\\u50cf|\\u7167\\u7247|\\u56fe)", "i"),
+  new RegExp("(\\u4e0a\\u9762|\\u4e0a\\u4e00\\u5f20|\\u524d\\u9762|\\u521a\\u624d|\\u8fd9\\u5f20|\\u8fd9\\u4e2a).*(\\u56fe\\u7247|\\u56fe\\u50cf|\\u7167\\u7247|\\u56fe).*(\\u4fee\\u6539|\\u7f16\\u8f91|\\u4fee\\u56fe|\\u5904\\u7406|\\u8c03\\u6574|\\u53bb\\u9664|\\u53bb\\u6389|\\u5220\\u9664|\\u4fee\\u590d|\\u66ff\\u6362|\\u6362)", "i"),
   new RegExp("(?:^|\\n)\\s*(\\u63d0\\u793a\\u8bcd|prompt)\\s*[:\\uff1a][\\s\\S]{8,}", "i")
+];
+
+const previousImageIntentRules = [
+  new RegExp("(\\u4e0a\\u9762|\\u4e0a\\u4e00\\u5f20|\\u524d\\u9762|\\u521a\\u624d|\\u8fd9\\u5f20|\\u8fd9\\u4e2a|\\u6211\\u4e0a\\u9762).*(\\u56fe\\u7247|\\u56fe\\u50cf|\\u7167\\u7247|\\u56fe)", "i"),
+  new RegExp("(\\u4fee\\u6539|\\u7f16\\u8f91|\\u4fee\\u56fe|\\u5904\\u7406|\\u8c03\\u6574|\\u53bb\\u9664|\\u53bb\\u6389|\\u5220\\u9664|\\u4fee\\u590d|\\u66ff\\u6362|\\u6362).*(\\u4e0a\\u9762|\\u4e0a\\u4e00\\u5f20|\\u524d\\u9762|\\u521a\\u624d|\\u8fd9\\u5f20|\\u8fd9\\u4e2a)", "i")
 ];
 
 const imageIntentRules = [
@@ -234,8 +241,13 @@ const imageIntentRules = [
 function isImageRequest(content: string, selectedImageCount: number) {
   if (selectedImageCount > 0) return true;
   if (forcedImageIntentRules.some((rule) => rule.test(content))) return true;
+  if (previousImageIntentRules.some((rule) => rule.test(content))) return true;
   if (chatIntentRules.some((rule) => rule.test(content))) return false;
   return imageIntentRules.some((rule) => rule.test(content));
+}
+
+function shouldUsePreviousImage(content: string) {
+  return previousImageIntentRules.some((rule) => rule.test(content));
 }
 
 function App() {
@@ -397,6 +409,17 @@ function App() {
       const { [sessionId]: _removed, ...rest } = current;
       return rest;
     });
+  }
+
+  function findLastAvailableImageId() {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      for (let imageIndex = message.image_ids.length - 1; imageIndex >= 0; imageIndex -= 1) {
+        const imageId = message.image_ids[imageIndex];
+        if (imageById.has(imageId)) return imageId;
+      }
+    }
+    return "";
   }
 
   async function loadSession(id: string) {
@@ -755,12 +778,15 @@ function App() {
 
   async function sendMessage() {
     if (!prompt.trim() || isCurrentSessionBusy) return;
-    if (isImageRequest(prompt.trim(), selectedImages.length)) {
+    const trimmedPrompt = prompt.trim();
+    const fallbackImageId = !selectedImages.length && shouldUsePreviousImage(trimmedPrompt) ? findLastAvailableImageId() : "";
+    const effectiveSelectedCount = selectedImages.length || (fallbackImageId ? 1 : 0);
+    if (isImageRequest(trimmedPrompt, effectiveSelectedCount)) {
       await generateImage();
       return;
     }
     setError("");
-    const nextPrompt = prompt.trim();
+    const nextPrompt = trimmedPrompt;
     setPrompt("");
     let optimisticMessages = messages;
     let pendingId = "";
@@ -907,8 +933,14 @@ function App() {
     if (!prompt.trim() || isCurrentSessionBusy) return;
     setError("");
     const nextPrompt = prompt.trim();
+    const wantsPreviousImage = shouldUsePreviousImage(nextPrompt);
+    const fallbackImageId = !selectedImages.length && wantsPreviousImage ? findLastAvailableImageId() : "";
+    const sourceImageIds = selectedImages.length ? selectedImages : fallbackImageId ? [fallbackImageId] : [];
+    if (wantsPreviousImage && !sourceImageIds.length) {
+      setError("\u8bf7\u5148\u4e0a\u4f20\u6216\u751f\u6210\u4e00\u5f20\u56fe\u7247\uff0c\u518d\u8ba9\u6211\u5904\u7406\u5b83\u3002");
+      return;
+    }
     setPrompt("");
-    const sourceImageIds = selectedImages;
     setSelectedImages([]);
     let optimisticMessages = messages;
     let sessionId = activeId;
