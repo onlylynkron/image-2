@@ -121,6 +121,8 @@ const authText = {
   or: "\u6216",
   username: "\u7528\u6237\u540d",
   password: "\u5bc6\u7801",
+  loginUsernamePlaceholder: "\u8bf7\u8f93\u5165\u7528\u6237\u540d",
+  loginPasswordPlaceholder: "\u8bf7\u8f93\u5165\u5bc6\u7801",
   usernamePlaceholder: "\u81f3\u5c11 3 \u4f4d",
   passwordPlaceholder: "\u81f3\u5c11 6 \u4f4d",
   googleLoadFailed: "Google \u767b\u5f55\u52a0\u8f7d\u5931\u8d25",
@@ -1345,7 +1347,7 @@ function App() {
                 <input
                   value={authForm.username}
                   onChange={(event) => setAuthForm((form) => ({ ...form, username: event.target.value }))}
-                  placeholder={authText.usernamePlaceholder}
+                  placeholder={authMode === "login" ? authText.loginUsernamePlaceholder : authText.usernamePlaceholder}
                   autoComplete="username"
                 />
               </label>
@@ -1355,7 +1357,7 @@ function App() {
                   type="password"
                   value={authForm.password}
                   onChange={(event) => setAuthForm((form) => ({ ...form, password: event.target.value }))}
-                  placeholder={authText.passwordPlaceholder}
+                  placeholder={authMode === "login" ? authText.loginPasswordPlaceholder : authText.passwordPlaceholder}
                   autoComplete={authMode === "login" ? "current-password" : "new-password"}
                 />
               </label>
