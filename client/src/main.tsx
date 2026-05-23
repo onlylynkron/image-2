@@ -216,6 +216,12 @@ const chatIntentRules = [
   /(能不能|可以吗|是否).*(生成|画|做).*(图|图片)/i
 ];
 
+const forcedImageIntentRules = [
+  new RegExp("\\u91cd\\u65b0\\u751f\\u6210|\\u91cd\\u65b0\\u51fa\\u56fe|\\u91cd\\u65b0\\u751f\\u56fe|\\u518d\\u6b21\\u751f\\u6210|\\u518d\\u751f\\u6210\\u4e00\\u6b21|\\u91cd\\u65b0\\u753b|\\u91cd\\u65b0\\u7ed8\\u5236|\\u91cd\\u65b0\\u6e32\\u67d3", "i"),
+  new RegExp("(\\u6309|\\u7528|\\u6839\\u636e|\\u57fa\\u4e8e).*(\\u8fd9\\u4e2a|\\u8fd9\\u6bb5|\\u6b64|\\u4e0a\\u9762|\\u4ee5\\u4e0a).*(\\u63d0\\u793a\\u8bcd|prompt).*(\\u751f\\u6210|\\u751f\\u56fe|\\u51fa\\u56fe|\\u753b|\\u7ed8\\u5236|\\u6e32\\u67d3|\\u5236\\u4f5c)", "i"),
+  new RegExp("(?:^|\\n)\\s*(\\u63d0\\u793a\\u8bcd|prompt)\\s*[:\\uff1a][\\s\\S]{8,}", "i")
+];
+
 const imageIntentRules = [
   /(生成|生图|出图|画|绘制|渲染|制作|做|设计|创建|生成一张|生成一个).*?(图|图片|图像|照片|海报|封面|logo|头像|壁纸|产品图|展示图|效果图|设计图|渲染图)/i,
   /(图|图片|图像|照片|海报|封面|logo|头像|壁纸|产品图|展示图|效果图|设计图|渲染图).*?(生成|生图|出图|画|绘制|渲染|制作|做|设计|创建)/i,
@@ -227,6 +233,7 @@ const imageIntentRules = [
 
 function isImageRequest(content: string, selectedImageCount: number) {
   if (selectedImageCount > 0) return true;
+  if (forcedImageIntentRules.some((rule) => rule.test(content))) return true;
   if (chatIntentRules.some((rule) => rule.test(content))) return false;
   return imageIntentRules.some((rule) => rule.test(content));
 }
