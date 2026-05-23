@@ -595,10 +595,13 @@ class PostgresStore:
     def get_session(self, session_id: str, user_id: str | None = None):
         with self.connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT * FROM chat_sessions WHERE id = %s AND (%s IS NULL OR user_id = %s)",
-                    (session_id, user_id, user_id),
-                )
+                if user_id:
+                    cur.execute(
+                        "SELECT * FROM chat_sessions WHERE id = %s AND user_id = %s",
+                        (session_id, user_id),
+                    )
+                else:
+                    cur.execute("SELECT * FROM chat_sessions WHERE id = %s", (session_id,))
                 session_row = cur.fetchone()
                 if not session_row:
                     return None
