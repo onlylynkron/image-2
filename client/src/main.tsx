@@ -890,7 +890,7 @@ function App() {
             <MessageSquareX size={20} />
           </button>
           <div className="topbar-title">
-            <strong>{activeSession?.title || "未命名会话"}</strong>
+            <strong>{activeSession?.title || "Image Studio"}</strong>
             {/*<span>独立上下文 · 本地历史</span>*/}
           </div>
           <button
