@@ -565,7 +565,8 @@ button {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 34px;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 1;
   display: flex;
   align-items: center;
