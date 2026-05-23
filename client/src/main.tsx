@@ -134,6 +134,10 @@ function createId() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function readTheme(): "light" | "dark" {
   try {
     return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light";
@@ -411,6 +415,29 @@ function App() {
     setMessages((items) => items.map((item) => (item.id === messageId ? replacement : item)));
   }
 
+  async function animateAssistantMessage(
+    sessionId: string,
+    pendingId: string,
+    baseMessages: ChatMessage[],
+    assistantMessage: ChatMessage
+  ) {
+    const fullContent = assistantMessage.content;
+    for (let index = 1; index <= fullContent.length; index += 1) {
+      const animatedMessage: ChatMessage = {
+        ...assistantMessage,
+        content: fullContent.slice(0, index),
+        meta: { ...(assistantMessage.meta || {}), streaming: true }
+      };
+      if (activeIdRef.current === sessionId) replaceMessage(pendingId, animatedMessage);
+      setSessionPendingMessages(
+        sessionId,
+        baseMessages.map((message) => (message.id === pendingId ? animatedMessage : message))
+      );
+      await wait(index < 80 ? 18 : 8);
+    }
+    if (activeIdRef.current === sessionId) replaceMessage(pendingId, assistantMessage);
+  }
+
   async function submitAuth() {
     setAuthError("");
     try {
@@ -599,7 +626,7 @@ function App() {
           meta: result.meta
         };
         const nextMessages = optimisticMessages.map((message) => (message.id === pendingId ? assistantMessage : message));
-        if (activeIdRef.current === sessionId) setMessages(nextMessages);
+        await animateAssistantMessage(sessionId, pendingId, optimisticMessages, assistantMessage);
         saveLocalDetail(sessionId, nextMessages, images);
         return;
       }
@@ -610,7 +637,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({ content: nextPrompt })
       }, auth.token);
-      if (activeIdRef.current === sessionId) replaceMessage(pendingId, result.assistantMessage);
+      await animateAssistantMessage(sessionId, pendingId, optimisticMessages, result.assistantMessage);
       await refreshSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "回复失败");
@@ -677,6 +704,7 @@ function App() {
             prompt: nextPrompt,
             options,
             image_count: options.image_count,
+            messages: optimisticMessages,
             source_images: sourceImages.map((image) => ({
               id: image.id,
               filename: image.filename,
@@ -914,7 +942,7 @@ function App() {
               key={message.id}
               className={`message ${message.role} ${isGeneratedImageMessage ? "image-only" : ""} ${isUserImageEditMessage ? "image-edit-request" : ""}`}
             >
-              {message.meta?.pending ? (
+              {message.meta?.pending && !message.content ? (
                 <div className="bubble chat-loading" role="status" aria-live="polite">
                   <span />
                   <span />

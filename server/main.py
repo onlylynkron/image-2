@@ -444,10 +444,11 @@ def guest_generate(payload: GuestGeneratePayload):
         ChatSession(
             id="guest",
             title=DEFAULT_SESSION_TITLE,
+            summary=payload.summary,
             created_at=now_iso(),
             updated_at=now_iso(),
         ),
-        [],
+        payload.messages,
     )
     result = request_image(runtime_config, payload, prompt_context, source_images, store.image_path)
     decoded_images = decode_image_results(result, payload.options.format)

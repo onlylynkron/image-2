@@ -138,6 +138,8 @@ class GuestImageSource(BaseModel):
 
 class GuestGeneratePayload(GeneratePayload):
     source_images: list[GuestImageSource] = Field(default_factory=list)
+    messages: list[ChatMessage] = Field(default_factory=list)
+    summary: str = ""
 
 
 class GuestChatPayload(BaseModel):
