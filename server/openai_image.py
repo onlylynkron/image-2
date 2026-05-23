@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import re
 from pathlib import Path
 
@@ -140,6 +141,102 @@ def request_image(
         )
         response.raise_for_status()
         return response.json()
+
+
+def request_image_stream(
+    config: ServerConfig,
+    payload: GeneratePayload,
+    prompt_context: str,
+    source_images: list[ImageAsset],
+    image_path_for,
+):
+    prompt = "\n\n".join(
+        part
+        for part in [
+            f"Context reference:\n{prompt_context}" if prompt_context else "",
+            f"Generation parameters:\n{build_generation_constraints(payload)}",
+            f"Current request:\n{payload.prompt}",
+        ]
+        if part
+    )
+    body = {
+        "model": config.image_model,
+        "prompt": prompt,
+        "quality": payload.options.quality,
+        "size": image_size_for_options(payload),
+        "output_format": payload.options.format,
+        "stream": True,
+        "partial_images": 3,
+    }
+    image_count = infer_image_count(payload.prompt, payload.image_count or payload.options.image_count)
+    if image_count > 1:
+        body["n"] = image_count
+    if payload.options.format != "png":
+        body["output_compression"] = payload.options.compression
+
+    base_url = (config.base_url or "https://api.openai.com/v1").rstrip("/")
+    headers = {"Authorization": f"Bearer {config.api_key}"}
+    if source_images:
+        handles = []
+        try:
+            for asset in source_images:
+                handles.append(Path(image_path_for(asset.filename)).open("rb"))
+            files = [("image", (asset.original_name or asset.filename, handle, asset.mime_type))
+                     for asset, handle in zip(source_images, handles)]
+            data = {key: str(value).lower() if isinstance(value, bool) else str(value) for key, value in body.items()}
+            with httpx.Client(timeout=None) as client:
+                with client.stream(
+                    "POST",
+                    f"{base_url}/images/edits",
+                    data=data,
+                    files=files,
+                    headers=headers,
+                ) as response:
+                    response.raise_for_status()
+                    yield from iter_image_stream_events(response)
+        finally:
+            for handle in handles:
+                handle.close()
+        return
+
+    with httpx.Client(timeout=None) as client:
+        with client.stream(
+            "POST",
+            f"{base_url}/images/generations",
+            json=body,
+            headers=headers,
+        ) as response:
+            response.raise_for_status()
+            yield from iter_image_stream_events(response)
+
+
+def iter_image_stream_events(response: httpx.Response):
+    for line in response.iter_lines():
+        if not line or line.startswith(":"):
+            continue
+        if line.startswith("data:"):
+            line = line[5:].strip()
+        if line == "[DONE]":
+            break
+        try:
+            yield json.loads(line)
+        except Exception:
+            continue
+
+
+def normalize_stream_image_result(events: list[dict]) -> dict:
+    data = []
+    for event in events:
+        b64 = event.get("b64_json") or event.get("partial_image_b64")
+        if not b64:
+            continue
+        data.append(
+            {
+                "b64_json": b64,
+                "revised_prompt": event.get("revised_prompt"),
+            }
+        )
+    return {"data": data}
 
 
 def decode_image_results(result, fmt: str) -> list[tuple[bytes, str, str, str | None]]:

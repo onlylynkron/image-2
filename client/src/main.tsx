@@ -247,6 +247,7 @@ function App() {
   const [uploading, setUploading] = React.useState(false);
   const [busyBySession, setBusyBySession] = React.useState<Record<string, "chat" | "image">>({});
   const [pendingBySession, setPendingBySession] = React.useState<Record<string, ChatMessage[]>>({});
+  const [imagePreviewBySession, setImagePreviewBySession] = React.useState<Record<string, string>>({});
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [previewImage, setPreviewImage] = React.useState<ImageAsset | null>(null);
@@ -458,6 +459,18 @@ function App() {
 
   function clearSessionBusy(sessionId: string) {
     setBusyBySession((current) => {
+      if (!current[sessionId]) return current;
+      const { [sessionId]: _removed, ...rest } = current;
+      return rest;
+    });
+  }
+
+  function setSessionImagePreview(sessionId: string, dataUrl: string) {
+    setImagePreviewBySession((current) => ({ ...current, [sessionId]: dataUrl }));
+  }
+
+  function clearSessionImagePreview(sessionId: string) {
+    setImagePreviewBySession((current) => {
       if (!current[sessionId]) return current;
       const { [sessionId]: _removed, ...rest } = current;
       return rest;
@@ -917,77 +930,102 @@ function App() {
       optimisticMessages = [...messages, userMessage];
       setMessages(optimisticMessages);
       setSessionPendingMessages(sessionId, [userMessage]);
+      clearSessionImagePreview(sessionId);
       markSessionBusy(sessionId, "image");
-      if (!auth?.token) {
-        const result = await api.json<{
-          content: string;
-          image: ImageAsset;
-          images?: ImageAsset[];
-          meta?: Record<string, unknown>;
-        }>("/api/guest/generate", {
-          method: "POST",
-          body: JSON.stringify({
-            prompt: nextPrompt,
-            options,
-            image_count: options.image_count,
-            messages: optimisticMessages,
-            source_images: sourceImages.map((image) => ({
-              id: image.id,
-              filename: image.filename,
-              original_name: image.original_name,
-              mime_type: image.mime_type
-            }))
-          })
-        });
-        const generatedImages = (result.images?.length ? result.images : [result.image]).map((image) => ({
-          ...image,
-          id: createId(),
-          session_id: sessionId
-        }));
-        const assistantMessage: ChatMessage = {
-          id: createId(),
-          session_id: sessionId,
-          role: "assistant",
-          content: result.content,
-          image_ids: generatedImages.map((image) => image.id),
-          created_at: nowIso(),
-          meta: result.meta
-        };
-        const nextMessages = [...optimisticMessages, assistantMessage];
-        const nextImages = [...images, ...generatedImages];
-        if (activeIdRef.current === sessionId) {
-          setMessages(nextMessages);
-          setImages(nextImages);
-        }
-        saveLocalDetail(sessionId, nextMessages, nextImages, options);
-        return;
-      }
-      const result = await api.json<{
-        userMessage: ChatMessage;
-        assistantMessage: ChatMessage;
-        image: ImageAsset;
-        images?: ImageAsset[];
-      }>(`/api/sessions/${sessionId}/generate`, {
+
+      const response = await fetch(auth?.token ? "/api/sessions/" + sessionId + "/generate/stream" : "/api/guest/generate/stream", {
         method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(auth?.token ? { Authorization: "Bearer " + auth.token } : {})
+        },
         body: JSON.stringify({
           prompt: nextPrompt,
           options,
           image_count: options.image_count,
-          source_image_ids: sourceImageIds
+          ...(auth?.token
+            ? { source_image_ids: sourceImageIds }
+            : {
+                messages: optimisticMessages,
+                source_images: sourceImages.map((image) => ({
+                  id: image.id,
+                  filename: image.filename,
+                  original_name: image.original_name,
+                  mime_type: image.mime_type
+                }))
+              })
         })
-      }, auth.token);
-      if (activeIdRef.current === sessionId) {
-        setMessages((items) => [...items, result.assistantMessage]);
-        setImages((items) => [...items, ...(result.images?.length ? result.images : [result.image])]);
+      });
+
+      let finalMessages: ChatMessage[] | null = null;
+      let finalImages: ImageAsset[] | null = null;
+      await readChatStream(response, (event, data) => {
+        if (event === "start" && auth?.token && data.userMessage) {
+          const serverUserMessage = data.userMessage as ChatMessage;
+          optimisticMessages = optimisticMessages.map((message) =>
+            message.id === userMessage.id ? serverUserMessage : message
+          );
+          updateSessionMessage(sessionId, userMessage.id, serverUserMessage);
+          return;
+        }
+        if (event === "partial") {
+          const b64 = String(data.b64_json || "");
+          if (b64) setSessionImagePreview(sessionId, "data:image/" + options.format + ";base64," + b64);
+          return;
+        }
+        if (event === "done") {
+          if (!auth?.token) {
+            const generatedImages = (((data.images as ImageAsset[] | undefined)?.length
+              ? (data.images as ImageAsset[])
+              : [data.image as ImageAsset]).filter(Boolean)).map((image) => ({
+                ...image,
+                id: createId(),
+                session_id: sessionId
+              }));
+            const assistantMessage: ChatMessage = {
+              id: createId(),
+              session_id: sessionId,
+              role: "assistant",
+              content: String(data.content || "Image generated."),
+              image_ids: generatedImages.map((image) => image.id),
+              created_at: nowIso(),
+              meta: (data.meta as Record<string, unknown> | undefined) || {}
+            };
+            finalMessages = [...optimisticMessages, assistantMessage];
+            finalImages = [...images, ...generatedImages];
+            if (activeIdRef.current === sessionId) {
+              setMessages(finalMessages);
+              setImages(finalImages);
+            }
+            return;
+          }
+          const assistantMessage = data.assistantMessage as ChatMessage;
+          const generatedImages = ((data.images as ImageAsset[] | undefined)?.length
+            ? (data.images as ImageAsset[])
+            : [data.image as ImageAsset]).filter(Boolean);
+          if (activeIdRef.current === sessionId) {
+            setMessages((items) => [...items, assistantMessage]);
+            setImages((items) => [...items, ...generatedImages]);
+          }
+          return;
+        }
+        if (event === "error") {
+          throw new Error(String(data.error || "Image generation failed"));
+        }
+      });
+
+      if (!auth?.token) {
+        saveLocalDetail(sessionId, finalMessages || optimisticMessages, finalImages || images, options);
+        return;
       }
       await refreshSessions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "生成失败");
+      setError(err instanceof Error ? err.message : "Image generation failed");
       const failedMessage: ChatMessage = {
         id: createId(),
         session_id: sessionId,
         role: "assistant",
-        content: err instanceof Error ? `生成失败：${err.message}` : "生成失败",
+        content: err instanceof Error ? "Image generation failed: " + err.message : "Image generation failed",
         image_ids: [],
         created_at: nowIso(),
         meta: { error: true }
@@ -996,6 +1034,7 @@ function App() {
       if (!auth?.token && sessionId) saveLocalDetail(sessionId, [...optimisticMessages, failedMessage], images, options);
     } finally {
       clearSessionPendingMessages(sessionId);
+      clearSessionImagePreview(sessionId);
       clearSessionBusy(sessionId);
     }
   }
@@ -1217,11 +1256,17 @@ function App() {
           {isCurrentSessionGenerating && (
             <article className="message assistant">
               <div className="image-generating-card" role="status" aria-live="polite">
-                <div className="image-generating-pattern" />
-                <div className="image-generating-copy">
-                  <span>正在创建图片</span>
-                  <i />
-                </div>
+                {activeId && imagePreviewBySession[activeId] ? (
+                  <img className="image-generating-preview" src={imagePreviewBySession[activeId]} alt="Generating preview" />
+                ) : (
+                  <>
+                    <div className="image-generating-pattern" />
+                    <div className="image-generating-copy">
+                      <span>Generating image</span>
+                      <i />
+                    </div>
+                  </>
+                )}
               </div>
             </article>
           )}

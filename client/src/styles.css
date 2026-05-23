@@ -665,6 +665,15 @@ button {
   animation: spin 0.9s linear infinite;
 }
 
+.image-generating-preview {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .message-images {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));

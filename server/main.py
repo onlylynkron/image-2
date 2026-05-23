@@ -31,7 +31,7 @@ from .models import (
     SyncPayload,
     UserProfile,
 )
-from .openai_image import decode_image_results, request_image
+from .openai_image import decode_image_results, normalize_stream_image_result, request_image, request_image_stream
 from .storage import DEFAULT_SESSION_TITLE, create_store, now_iso
 
 config = load_config()
@@ -472,6 +472,121 @@ def generate_image(session_id: str, payload: GeneratePayload, user: UserProfile 
         ) from exc
 
 
+@app.post("/api/sessions/{session_id}/generate/stream", status_code=201)
+def generate_image_stream(session_id: str, payload: GeneratePayload, user: UserProfile = Depends(require_user)):
+    session_state = store.get_session(session_id, user.id)
+    if not session_state:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if not payload.prompt.strip():
+        raise HTTPException(status_code=400, detail="Please enter an image prompt.")
+
+    runtime_config = store.runtime_config()
+    if not runtime_config.api_key:
+        raise HTTPException(status_code=400, detail="Please configure OPENAI_API_KEY first.")
+
+    user_message = store.add_message(
+        session_id=session_id,
+        role="user",
+        content=payload.prompt.strip(),
+        image_ids=[*payload.source_image_ids, *payload.uploaded_image_ids],
+    )
+
+    latest = store.get_session(session_id, user.id)
+    summary = maybe_compress_history(runtime_config, latest["session"], latest["messages"])
+    if summary != latest["session"].summary:
+        store.update_session(session_id, user_id=user.id, summary=summary, summary_updated_at=now_iso())
+
+    refreshed = store.get_session(session_id, user.id)
+    prompt_context = build_prompt_context(refreshed["session"], refreshed["messages"])
+    source_ids = [*payload.source_image_ids, *payload.uploaded_image_ids]
+    source_images = store.find_images(source_ids)
+
+    def events():
+        yield sse_event("start", {"userMessage": user_message.model_dump()})
+        try:
+            completed_events = []
+            final_result = None
+            try:
+                for event in request_image_stream(runtime_config, payload, prompt_context, source_images, store.image_path):
+                    event_type = event.get("type") or event.get("event")
+                    if event_type in {"image_generation.partial_image", "image_edit.partial_image"}:
+                        b64 = event.get("b64_json") or event.get("partial_image_b64")
+                        if b64:
+                            yield sse_event("partial", {"b64_json": b64, "index": event.get("partial_image_index", event.get("index", 0))})
+                    elif event_type in {"image_generation.completed", "image_edit.completed", "response.completed"}:
+                        completed_events.append(event)
+                    elif event_type in {"error", "response.error"}:
+                        error = event.get("error") or event
+                        message = error.get("message") if isinstance(error, dict) else str(error)
+                        raise RuntimeError(message or "Image stream failed")
+                final_result = normalize_stream_image_result(completed_events)
+            except httpx.HTTPStatusError:
+                final_result = request_image(runtime_config, payload, prompt_context, source_images, store.image_path)
+
+            if not final_result or not final_result.get("data"):
+                final_result = request_image(runtime_config, payload, prompt_context, source_images, store.image_path)
+
+            decoded_images = decode_image_results(final_result, payload.options.format)
+            revised_prompts = [item[3] for item in decoded_images if item[3]]
+            assistant_message = store.add_message(
+                session_id=session_id,
+                role="assistant",
+                content="Image generated.",
+                image_ids=[],
+                meta={
+                    "promptContext": prompt_context,
+                    "revisedPrompt": revised_prompts[0] if revised_prompts else None,
+                    "revisedPrompts": revised_prompts,
+                    "sourceImageIds": source_ids,
+                },
+            )
+            images = []
+            for content, mime_type, ext, _revised_prompt in decoded_images:
+                filename = store.save_image_file(content, ext)
+                images.append(
+                    store.add_image(
+                        session_id=session_id,
+                        message_id=assistant_message.id,
+                        filename=filename,
+                        mime_type=mime_type,
+                        kind="generated",
+                        prompt=payload.prompt,
+                        options=payload.options,
+                    )
+                )
+            assistant_message = store.update_message(assistant_message.id, image_ids=[image.id for image in images])
+            current_title = refreshed["session"].title
+            if current_title == DEFAULT_SESSION_TITLE:
+                store.update_session(session_id, user_id=user.id, title=payload.prompt[:28] or current_title, options=payload.options)
+            else:
+                store.update_session(session_id, user_id=user.id, options=payload.options)
+
+            yield sse_event(
+                "done",
+                {
+                    "userMessage": user_message.model_dump(),
+                    "assistantMessage": assistant_message.model_dump(),
+                    "image": images[0].model_dump(),
+                    "images": [image.model_dump() for image in images],
+                },
+            )
+        except Exception as exc:
+            message = str(exc) or "Image generation failed"
+            assistant_message = store.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=f"Generation failed: {message}",
+                image_ids=[],
+                meta={"error": message},
+            )
+            yield sse_event(
+                "error",
+                {"error": message, "userMessage": user_message.model_dump(), "assistantMessage": assistant_message.model_dump()},
+            )
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
 @app.post("/api/guest/chat", status_code=201)
 def guest_chat(payload: GuestChatPayload):
     content = payload.content.strip()
@@ -614,6 +729,99 @@ def guest_generate(payload: GuestGeneratePayload):
             "revisedPrompts": revised_prompts,
         },
     }
+
+
+@app.post("/api/guest/generate/stream", status_code=201)
+def guest_generate_stream(payload: GuestGeneratePayload):
+    if not payload.prompt.strip():
+        raise HTTPException(status_code=400, detail="Please enter an image prompt.")
+    runtime_config = store.runtime_config()
+    if not runtime_config.api_key:
+        raise HTTPException(status_code=400, detail="Please configure OPENAI_API_KEY first.")
+
+    source_images = [
+        ImageAsset(
+            id=image.id,
+            session_id="guest",
+            filename=image.filename,
+            original_name=image.original_name,
+            mime_type=image.mime_type,
+            kind="upload",
+            url=f"/assets/{image.filename}",
+            created_at=now_iso(),
+        )
+        for image in payload.source_images
+    ]
+    prompt_context = build_prompt_context(
+        ChatSession(
+            id="guest",
+            title=DEFAULT_SESSION_TITLE,
+            summary=payload.summary,
+            created_at=now_iso(),
+            updated_at=now_iso(),
+        ),
+        payload.messages,
+    )
+
+    def events():
+        try:
+            completed_events = []
+            final_result = None
+            try:
+                for event in request_image_stream(runtime_config, payload, prompt_context, source_images, store.image_path):
+                    event_type = event.get("type") or event.get("event")
+                    if event_type in {"image_generation.partial_image", "image_edit.partial_image"}:
+                        b64 = event.get("b64_json") or event.get("partial_image_b64")
+                        if b64:
+                            yield sse_event("partial", {"b64_json": b64, "index": event.get("partial_image_index", event.get("index", 0))})
+                    elif event_type in {"image_generation.completed", "image_edit.completed", "response.completed"}:
+                        completed_events.append(event)
+                    elif event_type in {"error", "response.error"}:
+                        error = event.get("error") or event
+                        message = error.get("message") if isinstance(error, dict) else str(error)
+                        raise RuntimeError(message or "Image stream failed")
+                final_result = normalize_stream_image_result(completed_events)
+            except httpx.HTTPStatusError:
+                final_result = request_image(runtime_config, payload, prompt_context, source_images, store.image_path)
+
+            if not final_result or not final_result.get("data"):
+                final_result = request_image(runtime_config, payload, prompt_context, source_images, store.image_path)
+
+            decoded_images = decode_image_results(final_result, payload.options.format)
+            revised_prompts = [item[3] for item in decoded_images if item[3]]
+            images = []
+            for content, mime_type, ext, _revised_prompt in decoded_images:
+                filename = store.save_image_file(content, ext)
+                images.append(
+                    ImageAsset(
+                        id=secrets.token_hex(16),
+                        session_id="guest",
+                        filename=filename,
+                        mime_type=mime_type,
+                        kind="generated",
+                        url=f"/assets/{filename}",
+                        created_at=now_iso(),
+                        prompt=payload.prompt,
+                        options=payload.options,
+                    )
+                )
+            yield sse_event(
+                "done",
+                {
+                    "content": "Image generated.",
+                    "image": images[0].model_dump(),
+                    "images": [image.model_dump() for image in images],
+                    "meta": {
+                        "promptContext": prompt_context,
+                        "revisedPrompt": revised_prompts[0] if revised_prompts else None,
+                        "revisedPrompts": revised_prompts,
+                    },
+                },
+            )
+        except Exception as exc:
+            yield sse_event("error", {"error": str(exc) or "Image generation failed"})
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @app.post("/api/sync", status_code=201)
