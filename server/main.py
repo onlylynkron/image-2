@@ -282,13 +282,17 @@ def chat(session_id: str, payload: dict, user: UserProfile = Depends(require_use
         assistant_message = store.add_message(
             session_id=session_id,
             role="assistant",
-            content=f"回复失败：{message}",
+            content=f"Reply failed: {message}",
             image_ids=[],
             meta={"error": message},
         )
         raise HTTPException(
             status_code=500,
-            detail={"error": message, "userMessage": user_message, "assistantMessage": assistant_message},
+            detail={
+                "error": message,
+                "userMessage": user_message.model_dump(),
+                "assistantMessage": assistant_message.model_dump(),
+            },
         ) from exc
 
 
@@ -468,7 +472,11 @@ def generate_image(session_id: str, payload: GeneratePayload, user: UserProfile 
         )
         raise HTTPException(
             status_code=500,
-            detail={"error": message, "userMessage": user_message, "assistantMessage": assistant_message},
+            detail={
+                "error": message,
+                "userMessage": user_message.model_dump(),
+                "assistantMessage": assistant_message.model_dump(),
+            },
         ) from exc
 
 
