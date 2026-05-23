@@ -632,12 +632,15 @@ def sync_local_history(payload: SyncPayload, user: UserProfile = Depends(require
         )
         image_id_map = {}
         for image in detail.images:
-            if image.kind == "upload" and not Path(store.image_path(image.filename)).exists():
+            source_path = Path(store.image_path(image.filename))
+            if not source_path.exists():
                 continue
+            ext = source_path.suffix.lstrip(".") or image.mime_type.rsplit("/", 1)[-1] or "png"
+            filename = store.save_image_file(source_path.read_bytes(), ext)
             saved = store.add_image(
                 session_id=session.id,
                 message_id=None,
-                filename=image.filename,
+                filename=filename,
                 original_name=image.original_name,
                 mime_type=image.mime_type,
                 kind=image.kind,
@@ -650,7 +653,7 @@ def sync_local_history(payload: SyncPayload, user: UserProfile = Depends(require
                 session_id=session.id,
                 role=message.role,
                 content=message.content,
-                image_ids=[image_id_map.get(image_id, image_id) for image_id in message.image_ids],
+                image_ids=[image_id_map[image_id] for image_id in message.image_ids if image_id in image_id_map],
                 meta=message.meta,
             )
         imported.append(session.id)

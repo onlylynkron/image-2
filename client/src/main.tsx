@@ -592,7 +592,11 @@ function App() {
       setAuth(result);
       setAuthOpen(false);
       setAuthForm({ username: "", password: "" });
-      await syncLocalHistory(result.token);
+      try {
+        await syncLocalHistory(result.token);
+      } catch (syncError) {
+        setError(syncError instanceof Error ? `历史同步失败：${syncError.message}` : "历史同步失败");
+      }
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : "登录失败");
     }
@@ -610,7 +614,11 @@ function App() {
       setAuth(result);
       setAuthOpen(false);
       setAuthForm({ username: "", password: "" });
-      await syncLocalHistory(result.token);
+      try {
+        await syncLocalHistory(result.token);
+      } catch (syncError) {
+        setError(syncError instanceof Error ? `历史同步失败：${syncError.message}` : "历史同步失败");
+      }
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : authText.googleFailed);
     }
