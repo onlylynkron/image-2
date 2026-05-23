@@ -6,12 +6,13 @@ import hmac
 import json
 import secrets
 from pathlib import Path
+from typing import Iterator
 
 import httpx
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import load_config
@@ -274,6 +275,85 @@ def chat(session_id: str, payload: dict, user: UserProfile = Depends(require_use
         ) from exc
 
 
+@app.post("/api/sessions/{session_id}/chat/stream", status_code=201)
+def chat_stream(session_id: str, payload: dict, user: UserProfile = Depends(require_user)):
+    session_state = store.get_session(session_id, user.id)
+    if not session_state:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    content = str((payload or {}).get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Please enter a message.")
+
+    runtime_config = store.runtime_config()
+    if not runtime_config.api_key:
+        raise HTTPException(status_code=400, detail="Please configure OPENAI_API_KEY first.")
+
+    user_message = store.add_message(
+        session_id=session_id,
+        role="user",
+        content=content,
+        image_ids=[],
+    )
+
+    latest = store.get_session(session_id, user.id)
+    summary = maybe_compress_history(runtime_config, latest["session"], latest["messages"])
+    if summary != latest["session"].summary:
+        store.update_session(session_id, user_id=user.id, summary=summary, summary_updated_at=now_iso())
+
+    refreshed = store.get_session(session_id, user.id)
+    prompt_context = build_prompt_context(refreshed["session"], refreshed["messages"])
+
+    def events():
+        yield sse_event("start", {"userMessage": user_message.model_dump()})
+        chunks: list[str] = []
+        completed = False
+        try:
+            for delta in request_chat_response_stream(runtime_config, prompt_context, content):
+                chunks.append(delta)
+                yield sse_event("delta", {"text": delta})
+            answer = "".join(chunks).strip() or "OK."
+            assistant_message = store.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=answer,
+                image_ids=[],
+                meta={"promptContext": prompt_context},
+            )
+            if refreshed["session"].title == DEFAULT_SESSION_TITLE:
+                store.update_session(session_id, user_id=user.id, title=content[:28] or DEFAULT_SESSION_TITLE)
+            completed = True
+            yield sse_event("done", {"assistantMessage": assistant_message.model_dump()})
+        except GeneratorExit:
+            if chunks:
+                store.add_message(
+                    session_id=session_id,
+                    role="assistant",
+                    content="".join(chunks),
+                    image_ids=[],
+                    meta={"promptContext": prompt_context, "interrupted": True},
+                )
+            raise
+        except Exception as exc:
+            message = str(exc) or "Chat failed"
+            assistant_message = store.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=("".join(chunks) or f"Reply failed: {message}"),
+                image_ids=[],
+                meta={"error": message, "promptContext": prompt_context, "interrupted": bool(chunks)},
+            )
+            yield sse_event(
+                "error",
+                {"error": message, "assistantMessage": assistant_message.model_dump()},
+            )
+        finally:
+            if not completed and refreshed["session"].title == DEFAULT_SESSION_TITLE:
+                store.update_session(session_id, user_id=user.id, title=content[:28] or DEFAULT_SESSION_TITLE)
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
 @app.post("/api/sessions/{session_id}/generate", status_code=201)
 def generate_image(session_id: str, payload: GeneratePayload, user: UserProfile = Depends(require_user)):
     session_state = store.get_session(session_id, user.id)
@@ -394,6 +474,44 @@ def guest_chat(payload: GuestChatPayload):
     prompt_context = build_prompt_context(session, payload.messages)
     answer = request_chat_response(runtime_config, prompt_context, content)
     return {"content": answer, "meta": {"promptContext": prompt_context}}
+
+
+@app.post("/api/guest/chat/stream", status_code=201)
+def guest_chat_stream(payload: GuestChatPayload):
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Please enter a message.")
+    runtime_config = store.runtime_config()
+    if not runtime_config.api_key:
+        raise HTTPException(status_code=400, detail="Please configure OPENAI_API_KEY first.")
+
+    session = ChatSession(
+        id="guest",
+        title=DEFAULT_SESSION_TITLE,
+        summary=payload.summary,
+        created_at=now_iso(),
+        updated_at=now_iso(),
+    )
+    prompt_context = build_prompt_context(session, payload.messages)
+
+    def events():
+        yield sse_event("start", {"meta": {"promptContext": prompt_context}})
+        chunks: list[str] = []
+        try:
+            for delta in request_chat_response_stream(runtime_config, prompt_context, content):
+                chunks.append(delta)
+                yield sse_event("delta", {"text": delta})
+            yield sse_event("done", {"content": "".join(chunks).strip() or "OK.", "meta": {"promptContext": prompt_context}})
+        except GeneratorExit:
+            raise
+        except Exception as exc:
+            message = str(exc) or "Chat failed"
+            yield sse_event(
+                "error",
+                {"error": message, "content": "".join(chunks), "meta": {"promptContext": prompt_context, "interrupted": bool(chunks)}},
+            )
+
+    return StreamingResponse(events(), media_type="text/event-stream")
 
 
 @app.post("/api/guest/uploads", status_code=201)
@@ -546,7 +664,84 @@ def request_chat_response(runtime_config, prompt_context: str, content: str) -> 
         response = client.post(f"{base_url}/responses", json=payload, headers=headers)
         response.raise_for_status()
     text = extract_response_text(response.json())
-    return text or "我收到了。"
+    return text or "OK."
+
+
+def sse_event(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def request_chat_response_stream(runtime_config, prompt_context: str, content: str) -> Iterator[str]:
+    base_url = (runtime_config.base_url or "https://api.openai.com/v1").rstrip("/")
+    headers = {"Authorization": f"Bearer {runtime_config.api_key}"}
+    payload = {
+        "model": runtime_config.text_model,
+        "stream": True,
+        "input": [
+            {
+                "role": "system",
+                "content": (
+                    "You are a concise Chinese assistant inside an image creation app. "
+                    "Answer normal chat directly. If the user wants image generation, "
+                    "explain they should switch to image mode."
+                ),
+            },
+            {
+                "role": "user",
+                "content": f"Context:\n{prompt_context}\n\nUser message:\n{content}",
+            },
+        ],
+    }
+    with httpx.Client(timeout=None) as client:
+        with client.stream("POST", f"{base_url}/responses", json=payload, headers=headers) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line or line.startswith(":"):
+                    continue
+                if line.startswith("data:"):
+                    line = line[5:].strip()
+                if line == "[DONE]":
+                    break
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                delta = extract_response_stream_delta(event)
+                if delta:
+                    yield delta
+
+
+def extract_response_stream_delta(event: dict) -> str:
+    event_type = event.get("type") or event.get("event")
+    if event_type in {"response.output_text.delta", "output_text.delta"}:
+        delta = event.get("delta")
+        return delta if isinstance(delta, str) else ""
+    if event_type in {"response.output_text.done", "response.completed", "response.done"}:
+        return ""
+    if event_type in {"response.error", "error"}:
+        error = event.get("error") or event
+        message = error.get("message") if isinstance(error, dict) else str(error)
+        raise RuntimeError(message or "Chat stream failed")
+
+    delta = event.get("delta")
+    if isinstance(delta, str):
+        return delta
+    text = event.get("text")
+    if isinstance(text, str):
+        return text
+    choices = event.get("choices")
+    if isinstance(choices, list):
+        chunks = []
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            choice_delta = choice.get("delta") or {}
+            if isinstance(choice_delta, dict) and isinstance(choice_delta.get("content"), str):
+                chunks.append(choice_delta["content"])
+            elif isinstance(choice.get("text"), str):
+                chunks.append(choice["text"])
+        return "".join(chunks)
+    return ""
 
 
 def extract_response_text(data: dict) -> str:

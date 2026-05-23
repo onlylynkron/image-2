@@ -916,6 +916,12 @@ button {
   cursor: not-allowed;
 }
 
+.send-button.is-stop {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--panel);
+}
+
 .home-hint {
   display: flex;
   justify-content: center;

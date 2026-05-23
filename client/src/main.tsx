@@ -13,6 +13,7 @@ import {
   Send,
   Settings,
   Sparkles,
+  Square,
   Sun,
   Trash2,
   X
@@ -134,10 +135,6 @@ function createId() {
   return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-function wait(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 function readTheme(): "light" | "dark" {
   try {
     return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light";
@@ -221,6 +218,7 @@ function App() {
   const messagesEndRef = React.useRef<HTMLDivElement | null>(null);
   const skipNextLoadRef = React.useRef("");
   const activeIdRef = React.useRef("");
+  const streamControllersRef = React.useRef<Record<string, AbortController>>({});
 
   const isLoggedIn = Boolean(auth?.token);
   const activeSession = sessions.find((session) => session.id === activeId);
@@ -232,6 +230,7 @@ function App() {
   const currentBusyType = activeId ? busyBySession[activeId] : undefined;
   const isCurrentSessionBusy = Boolean(currentBusyType);
   const isCurrentSessionGenerating = currentBusyType === "image";
+  const canStopCurrentChat = currentBusyType === "chat";
 
   React.useEffect(() => {
     void bootstrap();
@@ -415,27 +414,74 @@ function App() {
     setMessages((items) => items.map((item) => (item.id === messageId ? replacement : item)));
   }
 
-  async function animateAssistantMessage(
-    sessionId: string,
-    pendingId: string,
-    baseMessages: ChatMessage[],
-    assistantMessage: ChatMessage
-  ) {
-    const fullContent = assistantMessage.content;
-    for (let index = 1; index <= fullContent.length; index += 1) {
-      const animatedMessage: ChatMessage = {
-        ...assistantMessage,
-        content: fullContent.slice(0, index),
-        meta: { ...(assistantMessage.meta || {}), streaming: true }
+  function updateStreamingMessage(sessionId: string, messageId: string, message: ChatMessage) {
+    if (activeIdRef.current === sessionId) replaceMessage(messageId, message);
+    setPendingBySession((current) => {
+      const pendingMessages = current[sessionId];
+      if (!pendingMessages) return current;
+      return {
+        ...current,
+        [sessionId]: pendingMessages.map((item) => (item.id === messageId ? message : item))
       };
-      if (activeIdRef.current === sessionId) replaceMessage(pendingId, animatedMessage);
-      setSessionPendingMessages(
-        sessionId,
-        baseMessages.map((message) => (message.id === pendingId ? animatedMessage : message))
-      );
-      await wait(index < 80 ? 18 : 8);
+    });
+  }
+
+  function updateSessionMessage(sessionId: string, messageId: string, message: ChatMessage) {
+    if (activeIdRef.current === sessionId) replaceMessage(messageId, message);
+    setPendingBySession((current) => {
+      const pendingMessages = current[sessionId];
+      if (!pendingMessages) return current;
+      return {
+        ...current,
+        [sessionId]: pendingMessages.map((item) => (item.id === messageId ? message : item))
+      };
+    });
+  }
+
+  function stopCurrentChat() {
+    if (!activeId) return;
+    streamControllersRef.current[activeId]?.abort();
+  }
+
+  async function readChatStream(
+    response: Response,
+    onEvent: (event: string, data: Record<string, unknown>) => void
+  ) {
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      const detail = payload?.detail?.error || payload?.detail || payload?.error || "请求失败";
+      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
     }
-    if (activeIdRef.current === sessionId) replaceMessage(pendingId, assistantMessage);
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("浏览器不支持流式响应。");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split("\n\n");
+      buffer = events.pop() || "";
+      for (const rawEvent of events) {
+        const parsed = parseSseEvent(rawEvent);
+        if (parsed) onEvent(parsed.event, parsed.data);
+      }
+    }
+    buffer += decoder.decode();
+    const parsed = parseSseEvent(buffer);
+    if (parsed) onEvent(parsed.event, parsed.data);
+  }
+
+  function parseSseEvent(rawEvent: string) {
+    const lines = rawEvent.split(/\r?\n/);
+    const event = lines.find((line) => line.startsWith("event:"))?.slice(6).trim() || "message";
+    const data = lines
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) return null;
+    return { event, data: JSON.parse(data) as Record<string, unknown> };
   }
 
   async function submitAuth() {
@@ -587,6 +633,8 @@ function App() {
     let optimisticMessages = messages;
     let pendingId = "";
     let sessionId = activeId;
+    let accumulatedContent = "";
+    let finalMessages: ChatMessage[] | null = null;
     try {
       sessionId = await ensureSession();
       const userMessage: ChatMessage = {
@@ -611,47 +659,101 @@ function App() {
       setMessages(optimisticMessages);
       setSessionPendingMessages(sessionId, [userMessage, pendingMessage]);
       markSessionBusy(sessionId, "chat");
+
+      const controller = new AbortController();
+      streamControllersRef.current[sessionId] = controller;
+      const response = await fetch(auth?.token ? "/api/sessions/" + sessionId + "/chat/stream" : "/api/guest/chat/stream", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(auth?.token ? { Authorization: "Bearer " + auth.token } : {})
+        },
+        body: JSON.stringify({
+          content: nextPrompt,
+          ...(!auth?.token ? { messages: optimisticMessages.filter((message) => !message.meta?.pending) } : {})
+        }),
+        signal: controller.signal
+      });
+
+      await readChatStream(response, (event, data) => {
+        if (event === "start" && auth?.token && data.userMessage) {
+          const serverUserMessage = data.userMessage as ChatMessage;
+          optimisticMessages = optimisticMessages.map((message) =>
+            message.id === userMessage.id ? serverUserMessage : message
+          );
+          updateSessionMessage(sessionId, userMessage.id, serverUserMessage);
+          return;
+        }
+        if (event === "delta") {
+          accumulatedContent += String(data.text || "");
+          updateStreamingMessage(sessionId, pendingId, {
+            ...pendingMessage,
+            content: accumulatedContent,
+            meta: { pending: true, streaming: true }
+          });
+          return;
+        }
+        if (event === "done") {
+          const assistantMessage = auth?.token
+            ? (data.assistantMessage as ChatMessage)
+            : ({
+                ...pendingMessage,
+                content: String(data.content || accumulatedContent),
+                meta: (data.meta as Record<string, unknown> | undefined) || {}
+              } satisfies ChatMessage);
+          finalMessages = optimisticMessages.map((message) =>
+            message.id === pendingId ? assistantMessage : message
+          );
+          updateStreamingMessage(sessionId, pendingId, assistantMessage);
+          return;
+        }
+        if (event === "error") {
+          const partialMessage = data.assistantMessage as ChatMessage | undefined;
+          if (partialMessage) updateStreamingMessage(sessionId, pendingId, partialMessage);
+          throw new Error(String(data.error || "Reply failed"));
+        }
+      });
+
       if (!auth?.token) {
-        const result = await api.json<{ content: string; meta?: Record<string, unknown> }>("/api/guest/chat", {
-          method: "POST",
-          body: JSON.stringify({ content: nextPrompt, messages: optimisticMessages.filter((message) => !message.meta?.pending) })
-        });
-        const assistantMessage: ChatMessage = {
+        saveLocalDetail(sessionId, finalMessages || optimisticMessages, images);
+        return;
+      }
+      await refreshSessions();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError" && pendingId) {
+        const interruptedMessage: ChatMessage = {
           id: pendingId,
           session_id: sessionId,
           role: "assistant",
-          content: result.content,
+          content: accumulatedContent || "Stopped",
           image_ids: [],
           created_at: nowIso(),
-          meta: result.meta
+          meta: { interrupted: true }
         };
-        const nextMessages = optimisticMessages.map((message) => (message.id === pendingId ? assistantMessage : message));
-        await animateAssistantMessage(sessionId, pendingId, optimisticMessages, assistantMessage);
-        saveLocalDetail(sessionId, nextMessages, images);
+        updateStreamingMessage(sessionId, pendingId, interruptedMessage);
+        if (!auth?.token && sessionId) {
+          saveLocalDetail(
+            sessionId,
+            optimisticMessages.map((message) => (message.id === pendingId ? interruptedMessage : message)),
+            images
+          );
+        } else {
+          await refreshSessions();
+        }
         return;
       }
-      const result = await api.json<{
-        userMessage: ChatMessage;
-        assistantMessage: ChatMessage;
-      }>(`/api/sessions/${sessionId}/chat`, {
-        method: "POST",
-        body: JSON.stringify({ content: nextPrompt })
-      }, auth.token);
-      await animateAssistantMessage(sessionId, pendingId, optimisticMessages, result.assistantMessage);
-      await refreshSessions();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "回复失败");
+      setError(err instanceof Error ? err.message : "Reply failed");
       if (pendingId) {
         const failedMessage: ChatMessage = {
           id: pendingId,
           session_id: sessionId,
           role: "assistant",
-          content: err instanceof Error ? `回复失败：${err.message}` : "回复失败",
+          content: err instanceof Error ? "Reply failed: " + err.message : "Reply failed",
           image_ids: [],
           created_at: nowIso(),
           meta: { error: true }
         };
-        if (activeIdRef.current === sessionId) replaceMessage(pendingId, failedMessage);
+        updateStreamingMessage(sessionId, pendingId, failedMessage);
         if (!auth?.token && sessionId) {
           saveLocalDetail(
             sessionId,
@@ -663,6 +765,7 @@ function App() {
         await loadSession(activeId);
       }
     } finally {
+      delete streamControllersRef.current[sessionId];
       clearSessionPendingMessages(sessionId);
       clearSessionBusy(sessionId);
     }
@@ -925,12 +1028,10 @@ function App() {
                   uploadFiles={uploadFiles}
                   uploading={uploading}
                   busy={isCurrentSessionBusy}
+                  canStop={canStopCurrentChat}
+                  stopMessage={stopCurrentChat}
                   variant="home"
                 />
-                <div className="home-hint">
-                  <span>支持生成与参考图编辑</span>
-                  <span>历史会自动压缩保存</span>
-                </div>
               </div>
             </div>
           )}
@@ -1018,6 +1119,8 @@ function App() {
             uploadFiles={uploadFiles}
             uploading={uploading}
             busy={isCurrentSessionBusy}
+            canStop={canStopCurrentChat}
+            stopMessage={stopCurrentChat}
           />
         </footer>}
       </main>
@@ -1203,22 +1306,26 @@ function PromptBox({
   prompt,
   setPrompt,
   sendMessage,
+  stopMessage,
   uploadFiles,
   uploading,
   busy,
+  canStop,
   variant = "dock"
 }: {
   prompt: string;
   setPrompt: (prompt: string) => void;
   sendMessage: () => void;
+  stopMessage: () => void;
   uploadFiles: (files: FileList | null) => void;
   uploading: boolean;
   busy: boolean;
+  canStop: boolean;
   variant?: "home" | "dock";
 }) {
   return (
-    <div className={`composer ${variant === "home" ? "home-composer" : ""}`}>
-      <label className="upload-button" title="上传参考图">
+    <div className={"composer " + (variant === "home" ? "home-composer" : "")}>
+      <label className="upload-button" title="Add reference image">
         <Plus size={21} strokeWidth={1.9} />
         <input
           type="file"
@@ -1231,23 +1338,24 @@ function PromptBox({
       <div className="prompt-field">
         <textarea
           value={prompt}
-          placeholder="有问题，尽管问"
+          placeholder="Ask anything"
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey) {
               event.preventDefault();
-              void sendMessage();
+              if (canStop) stopMessage();
+              else void sendMessage();
             }
           }}
         />
       </div>
       <button
-        className="send-button"
-        disabled={!prompt.trim() || busy}
-        onClick={() => void sendMessage()}
-        title="发送"
+        className={"send-button " + (canStop ? "is-stop" : "")}
+        disabled={!canStop && (!prompt.trim() || busy)}
+        onClick={() => (canStop ? stopMessage() : void sendMessage())}
+        title={canStop ? "Stop" : "Send"}
       >
-        <Send size={19} />
+        {canStop ? <Square size={17} fill="currentColor" /> : <Send size={19} />}
       </button>
     </div>
   );
