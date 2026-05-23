@@ -12,14 +12,10 @@ OPENAI_API_KEY=your_key
 OPENAI_BASE_URL=https://utoken.club/v1
 GPT_IMAGE_MODEL=gpt-image-2
 OPENAI_TEXT_MODEL=gpt-5.4
-
-DOCKER_DATABASE_URL=postgresql://image_studio:image_studio@postgres:5432/image_studio
-POSTGRES_DB=image_studio
-POSTGRES_USER=image_studio
-POSTGRES_PASSWORD=image_studio
 ```
 
 `PORT` controls the web access port and the backend listening port inside Docker.
+PostgreSQL is only available on the Docker Compose internal network and is not exposed to the host.
 
 ## Start
 

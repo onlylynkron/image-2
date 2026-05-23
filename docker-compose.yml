@@ -9,7 +9,7 @@ services:
       HOST: 0.0.0.0
       PORT: ${PORT:-8787}
       DATA_DIR: /app/data
-      DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://image_studio:image_studio@postgres:5432/image_studio}
+      DATABASE_URL: postgresql://image_studio:image_studio@postgres:5432/image_studio
     ports:
       - "${PORT:-8787}:${PORT:-8787}"
     volumes:
@@ -22,9 +22,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-image_studio}
-      POSTGRES_USER: ${POSTGRES_USER:-image_studio}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-image_studio}
+      POSTGRES_DB: image_studio
+      POSTGRES_USER: image_studio
+      POSTGRES_PASSWORD: image_studio
     volumes:
       - image_studio_postgres:/var/lib/postgresql/data
     healthcheck:
