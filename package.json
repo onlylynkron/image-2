@@ -5,11 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run server:dev\" \"npm run client:dev\"",
-    "server:dev": "python -m uvicorn server.main:app --host 0.0.0.0 --port 8788 --reload",
+    "server:dev": "python -m server.run --reload",
     "client:dev": "vite --host 0.0.0.0",
     "build": "npm run build:client",
     "build:client": "tsc -p client/tsconfig.json && vite build",
-    "start": "python -m uvicorn server.main:app --host 0.0.0.0 --port 8788",
+    "start": "python -m server.run",
     "typecheck": "npm run build:client"
   },
   "dependencies": {
