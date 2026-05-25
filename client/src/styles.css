@@ -773,9 +773,10 @@ button {
 }
 
 .image-result {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 360px));
-  justify-content: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: flex-start;
   gap: 12px;
   width: min(760px, 100%);
 }
@@ -788,8 +789,9 @@ button {
 }
 
 .image-result-tile {
-  display: block;
-  width: 100%;
+  display: inline-flex;
+  width: auto;
+  max-width: min(420px, 100%);
   padding: 0;
   overflow: hidden;
   background: var(--image-card-bg);
@@ -816,6 +818,11 @@ button {
 }
 
 .image-result-tile img {
+  width: auto;
+  height: auto;
+  max-width: min(420px, 100%);
+  max-height: min(72vh, 520px);
+  aspect-ratio: auto;
   display: block;
   object-fit: contain;
   border-radius: 22px;
@@ -1528,7 +1535,13 @@ button {
   }
 
   .image-result {
-    grid-template-columns: minmax(0, 1fr);
+    display: flex;
+  }
+
+  .image-result-tile,
+  .image-result-tile img {
+    max-width: min(320px, 100%);
+    max-height: 70vh;
   }
 
   .image-generating-card {
