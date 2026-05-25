@@ -151,6 +151,7 @@ python -m server.run
 | `PORT` | Web/API 服务端口 | `8787` |
 | `OPENAI_API_KEY` | API 密钥 | `sk-...` |
 | `OPENAI_BASE_URL` | API Base URL | `https://utoken.club/v1` |
+| `OPENAI_HTTP_TRUST_ENV` | 图片请求是否读取系统代理环境变量，默认关闭 | `false` |
 | `GPT_IMAGE_MODEL` | 图片模型 | `gpt-image-2` |
 | `OPENAI_TEXT_MODEL` | 文本对话模型 | `gpt-5.4` |
 | `GOOGLE_CLIENT_ID` | Google 登录 Client ID，可为空 | `xxx.apps.googleusercontent.com` |
@@ -164,6 +165,7 @@ python -m server.run
 - Docker Compose 启动时，应用会使用 Compose 内网中的 PostgreSQL。
 - 本地非 Docker 启动时，如果 `DATABASE_URL` 为空，会使用 `DATA_DIR/db.json` 作为本地存储。
 - API Key、Base URL 和模型配置只在服务端使用，前端不会展示这些配置项。
+- 图片请求默认不会读取系统代理环境变量，避免本机代理断开导致 `Server disconnected without sending a response`。如果确实需要使用系统代理，可以设置 `OPENAI_HTTP_TRUST_ENV=true`。
 
 ## 数据存储
 

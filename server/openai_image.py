@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import os
 import re
+import time
 from pathlib import Path
 
 import httpx
@@ -16,6 +18,17 @@ ASPECT_RATIO_SIZE_MAP = {
     "3:2": "1536x1024",
     "4:3": "1536x1024",
 }
+
+RETRYABLE_EXCEPTIONS = (
+    httpx.ConnectError,
+    httpx.ConnectTimeout,
+    httpx.ReadError,
+    httpx.ReadTimeout,
+    httpx.RemoteProtocolError,
+    httpx.WriteError,
+    httpx.WriteTimeout,
+)
+RETRYABLE_STATUS_CODES = {502, 503, 504}
 
 
 def _mime_for_format(fmt: str) -> str:
@@ -81,6 +94,57 @@ def build_generation_constraints(payload: GeneratePayload) -> str:
     return "\n".join(constraints)
 
 
+def _trust_env_proxy() -> bool:
+    return os.getenv("OPENAI_HTTP_TRUST_ENV", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _post_image_request(url: str, headers: dict[str, str], *, json=None, data=None, files=None) -> dict:
+    last_error: Exception | None = None
+    timeout = httpx.Timeout(connect=30, read=240, write=120, pool=30)
+    for attempt in range(3):
+        try:
+            if files:
+                for _field, file_info in files:
+                    handle = file_info[1]
+                    if hasattr(handle, "seek"):
+                        handle.seek(0)
+            with httpx.Client(timeout=timeout, trust_env=_trust_env_proxy()) as client:
+                response = client.post(
+                    url,
+                    json=json,
+                    data=data,
+                    files=files,
+                    headers={**headers, "Connection": "close"},
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as exc:
+            last_error = exc
+            status_code = exc.response.status_code
+            if status_code in RETRYABLE_STATUS_CODES and attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            response_text = exc.response.text[:500]
+            raise RuntimeError(
+                f"Image service returned HTTP {status_code}: {response_text or exc.response.reason_phrase}"
+            ) from exc
+        except RETRYABLE_EXCEPTIONS as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            break
+
+    if isinstance(last_error, httpx.RemoteProtocolError):
+        raise RuntimeError(
+            "Image service disconnected before sending a response. "
+            "The request was retried, but the upstream service or proxy still closed the connection."
+        ) from last_error
+    if last_error:
+        raise RuntimeError(f"Image service request failed after retries: {last_error}") from last_error
+    raise RuntimeError("Image service request failed.")
+
+
 def request_image(
     config: ServerConfig,
     payload: GeneratePayload,
@@ -119,27 +183,21 @@ def request_image(
                 handles.append(Path(image_path_for(asset.filename)).open("rb"))
             files = [("image", (asset.original_name or asset.filename, handle, asset.mime_type))
                      for asset, handle in zip(source_images, handles)]
-            with httpx.Client(timeout=180) as client:
-                response = client.post(
-                    f"{base_url}/images/edits",
-                    data=body,
-                    files=files,
-                    headers=headers,
-                )
-                response.raise_for_status()
-                return response.json()
+            return _post_image_request(
+                f"{base_url}/images/edits",
+                headers,
+                data=body,
+                files=files,
+            )
         finally:
             for handle in handles:
                 handle.close()
 
-    with httpx.Client(timeout=180) as client:
-        response = client.post(
-            f"{base_url}/images/generations",
-            json=body,
-            headers=headers,
-        )
-        response.raise_for_status()
-        return response.json()
+    return _post_image_request(
+        f"{base_url}/images/generations",
+        headers,
+        json=body,
+    )
 
 
 def decode_image_results(result, fmt: str) -> list[tuple[bytes, str, str, str | None]]:
