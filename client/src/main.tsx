@@ -3,7 +3,11 @@ import { createRoot } from "react-dom/client";
 import {
   Copy,
   Download,
+  Edit3,
   Pencil,
+  MoreHorizontal,
+  Pin,
+  PinOff,
   LogOut,
   MessageSquareX,
   Menu,
@@ -109,6 +113,7 @@ function normalizeOptions(options?: Partial<ImageOptions> | null): ImageOptions 
 const LOCAL_HISTORY_KEY = "image2.localHistory.v1";
 const AUTH_KEY = "image2.auth.v1";
 const THEME_KEY = "image2.theme.v1";
+const PINNED_SESSIONS_KEY = "image2.pinnedSessions.v1";
 const authText = {
   loginTitle: "\u6b22\u8fce\u56de\u6765",
   registerTitle: "\u521b\u5efa\u8d26\u53f7",
@@ -203,6 +208,19 @@ function readAuth(): AuthState | null {
   }
 }
 
+function readPinnedSessions(): string[] {
+  try {
+    const saved = localStorage.getItem(PINNED_SESSIONS_KEY);
+    return saved ? (JSON.parse(saved) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePinnedSessions(ids: string[]) {
+  localStorage.setItem(PINNED_SESSIONS_KEY, JSON.stringify(ids));
+}
+
 function writeAuth(auth: AuthState | null) {
   if (auth) localStorage.setItem(AUTH_KEY, JSON.stringify(auth));
   else localStorage.removeItem(AUTH_KEY);
@@ -260,6 +278,9 @@ function App() {
   const [googleReady, setGoogleReady] = React.useState(false);
   const [sessions, setSessions] = React.useState<SessionItem[]>([]);
   const [activeId, setActiveId] = React.useState("");
+  const [sessionMenuId, setSessionMenuId] = React.useState("");
+  const [pinnedSessionIds, setPinnedSessionIds] = React.useState<string[]>(() => readPinnedSessions());
+  const [completedSessionIds, setCompletedSessionIds] = React.useState<string[]>([]);
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [images, setImages] = React.useState<ImageAsset[]>([]);
   const [prompt, setPrompt] = React.useState("");
@@ -280,6 +301,15 @@ function App() {
 
   const isLoggedIn = Boolean(auth?.token);
   const activeSession = sessions.find((session) => session.id === activeId);
+  const orderedSessions = React.useMemo(() => {
+    const pinned = new Set(pinnedSessionIds);
+    return [...sessions].sort((a, b) => {
+      const aPinned = pinned.has(a.id);
+      const bPinned = pinned.has(b.id);
+      if (aPinned !== bPinned) return aPinned ? -1 : 1;
+      return sessions.indexOf(a) - sessions.indexOf(b);
+    });
+  }, [sessions, pinnedSessionIds]);
   const imageById = React.useMemo(
     () => new Map(images.map((image) => [image.id, image])),
     [images]
@@ -331,7 +361,15 @@ function App() {
   }, [theme]);
 
   React.useEffect(() => {
+    writePinnedSessions(pinnedSessionIds);
+  }, [pinnedSessionIds]);
+
+  React.useEffect(() => {
     activeIdRef.current = activeId;
+    if (activeId) {
+      setCompletedSessionIds((ids) => ids.filter((id) => id !== activeId));
+      setSessionMenuId("");
+    }
   }, [activeId]);
 
   React.useEffect(() => {
@@ -494,6 +532,61 @@ function App() {
       const { [sessionId]: _removed, ...rest } = current;
       return rest;
     });
+  }
+
+  function markSessionComplete(sessionId: string) {
+    if (activeIdRef.current === sessionId) return;
+    setCompletedSessionIds((ids) => (ids.includes(sessionId) ? ids : [...ids, sessionId]));
+  }
+
+  function togglePinnedSession(sessionId: string) {
+    setPinnedSessionIds((ids) =>
+      ids.includes(sessionId) ? ids.filter((id) => id !== sessionId) : [sessionId, ...ids]
+    );
+    setSessionMenuId("");
+  }
+
+  function selectSession(sessionId: string) {
+    setActiveId(sessionId);
+    setCompletedSessionIds((ids) => ids.filter((id) => id !== sessionId));
+    setSidebarOpen(false);
+    setSessionMenuId("");
+  }
+
+  async function renameSession(session: SessionItem) {
+    const nextTitle = window.prompt("修改会话名称", session.title)?.trim();
+    if (!nextTitle || nextTitle === session.title) {
+      setSessionMenuId("");
+      return;
+    }
+    setError("");
+    try {
+      if (!auth?.token) {
+        const snapshot = readLocalHistory();
+        const nextSessions = snapshot.sessions.map((item) =>
+          item.id === session.id ? { ...item, title: nextTitle, updated_at: nowIso() } : item
+        );
+        const nextDetails = { ...snapshot.details };
+        if (nextDetails[session.id]) {
+          nextDetails[session.id] = {
+            ...nextDetails[session.id],
+            session: { ...nextDetails[session.id].session, title: nextTitle, updated_at: nowIso() }
+          };
+        }
+        writeLocalHistory({ sessions: nextSessions, details: nextDetails });
+        setSessions(nextSessions);
+        return;
+      }
+      const updated = await api.json<SessionItem>(`/api/sessions/${session.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ title: nextTitle })
+      }, auth.token);
+      setSessions((items) => items.map((item) => (item.id === session.id ? { ...item, ...updated } : item)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "修改会话名称失败");
+    } finally {
+      setSessionMenuId("");
+    }
   }
 
   async function refreshSessions() {
@@ -689,6 +782,7 @@ function App() {
       return;
     }
     setError("");
+    setSessionMenuId("");
     try {
       if (!auth?.token) {
         const snapshot = readLocalHistory();
@@ -699,6 +793,8 @@ function App() {
         setSessions(nextSessions);
         const nextId = sessionId === activeId ? nextSessions[0]?.id || "" : activeId;
         setActiveId(nextId);
+        setPinnedSessionIds((ids) => ids.filter((id) => id !== sessionId));
+        setCompletedSessionIds((ids) => ids.filter((id) => id !== sessionId));
         if (!nextId) {
           setMessages([]);
           setImages([]);
@@ -712,6 +808,8 @@ function App() {
       setSessions(result.sessions);
       const nextId = sessionId === activeId ? result.sessions[0]?.id || "" : activeId;
       setActiveId(nextId);
+      setPinnedSessionIds((ids) => ids.filter((id) => id !== sessionId));
+      setCompletedSessionIds((ids) => ids.filter((id) => id !== sessionId));
       if (!nextId) {
         setMessages([]);
         setImages([]);
@@ -874,9 +972,11 @@ function App() {
 
       if (!auth?.token) {
         saveLocalDetail(sessionId, finalMessages || optimisticMessages, images);
+        markSessionComplete(sessionId);
         return;
       }
       await refreshSessions();
+      markSessionComplete(sessionId);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError" && pendingId) {
         const interruptedMessage: ChatMessage = {
@@ -898,6 +998,7 @@ function App() {
         } else {
           await refreshSessions();
         }
+        markSessionComplete(sessionId);
         return;
       }
       setError(err instanceof Error ? err.message : "Reply failed");
@@ -919,6 +1020,7 @@ function App() {
             images
           );
         }
+        markSessionComplete(sessionId);
       } else if (activeId) {
         await loadSession(activeId);
       }
@@ -1001,6 +1103,7 @@ function App() {
           setImages(nextImages);
         }
         saveLocalDetail(sessionId, nextMessages, nextImages, options);
+        markSessionComplete(sessionId);
         return;
       }
       const result = await api.json<{
@@ -1022,6 +1125,7 @@ function App() {
         setImages((items) => [...items, ...(result.images?.length ? result.images : [result.image])]);
       }
       await refreshSessions();
+      markSessionComplete(sessionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Image generation failed");
       const failedMessage: ChatMessage = {
@@ -1035,6 +1139,7 @@ function App() {
       };
       if (activeIdRef.current === sessionId) setMessages([...optimisticMessages, failedMessage]);
       if (!auth?.token && sessionId) saveLocalDetail(sessionId, [...optimisticMessages, failedMessage], images, options);
+      markSessionComplete(sessionId);
     } finally {
       clearSessionPendingMessages(sessionId);
       clearSessionBusy(sessionId);
@@ -1089,30 +1194,60 @@ function App() {
           新建会话
         </button>
         <div className="session-list">
-          {sessions.map((session) => (
-            <div
-              key={session.id}
-              className={`session-row ${session.id === activeId ? "active" : ""}`}
-            >
-              <button
-                className="session-item"
-                onClick={() => {
-                  setActiveId(session.id);
-                  setSidebarOpen(false);
-                }}
+          {orderedSessions.map((session) => {
+            const isPinned = pinnedSessionIds.includes(session.id);
+            const isBusy = Boolean(busyBySession[session.id]);
+            const isComplete = completedSessionIds.includes(session.id);
+            const isMenuOpen = sessionMenuId === session.id;
+            return (
+              <div
+                key={session.id}
+                className={`session-row ${session.id === activeId ? "active" : ""} ${isMenuOpen ? "menu-open" : ""}`}
               >
-                <span>{session.title}</span>
-                <small>{session.message_count} 条消息 · {session.image_count} 张图</small>
-              </button>
-              <button
-                className="session-delete"
-                onClick={() => void deleteSession(session.id, session.title)}
-                title="删除会话"
-              >
-                <Trash2 size={16} />
-              </button>
-            </div>
-          ))}
+                <button
+                  className="session-item"
+                  onClick={() => selectSession(session.id)}
+                >
+                  <span>{session.title}</span>
+                  <small>{session.message_count} 条消息 · {session.image_count} 张图</small>
+                </button>
+                <div className="session-status" aria-hidden="true">
+                  {isBusy && <span className="session-spinner" />}
+                  {!isBusy && isComplete && <span className="session-unread-dot" />}
+                </div>
+                <button
+                  className="session-more"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSessionMenuId((id) => (id === session.id ? "" : session.id));
+                  }}
+                  title="会话操作"
+                >
+                  <MoreHorizontal size={18} />
+                </button>
+                {isMenuOpen && (
+                  <div className="session-menu" role="menu">
+                    <button onClick={() => void renameSession(session)} role="menuitem">
+                      <Edit3 size={16} />
+                      重命名
+                    </button>
+                    <button onClick={() => togglePinnedSession(session.id)} role="menuitem">
+                      {isPinned ? <PinOff size={16} /> : <Pin size={16} />}
+                      {isPinned ? "取消置顶" : "置顶聊天"}
+                    </button>
+                    <button
+                      className="danger"
+                      onClick={() => void deleteSession(session.id, session.title)}
+                      role="menuitem"
+                    >
+                      <Trash2 size={16} />
+                      删除
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
         <div className="auth-card">
           {isLoggedIn ? (

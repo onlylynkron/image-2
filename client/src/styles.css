@@ -244,10 +244,11 @@ button {
 .session-row {
   width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(0, 1fr) 22px 34px;
   align-items: center;
   padding: 0;
-  overflow: hidden;
+  position: relative;
+  overflow: visible;
 }
 
 .session-row.active {
@@ -278,7 +279,31 @@ button {
   color: var(--muted);
 }
 
-.session-delete {
+.session-status {
+  width: 22px;
+  min-height: 32px;
+  display: grid;
+  place-items: center;
+}
+
+.session-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(0, 122, 255, 0.22);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 800ms linear infinite;
+}
+
+.session-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.14);
+}
+
+.session-more {
   width: 32px;
   height: 32px;
   display: grid;
@@ -288,10 +313,60 @@ button {
   border-radius: 12px;
   color: var(--muted);
   background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease, background 150ms ease, color 150ms ease;
 }
 
-.session-delete:hover {
+.session-row:hover .session-more,
+.session-row.menu-open .session-more,
+.session-more:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.session-more:hover {
+  color: var(--text);
+  background: var(--hover-bg);
+}
+
+.session-menu {
+  position: absolute;
+  top: 38px;
+  right: 8px;
+  z-index: 20;
+  width: 138px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel-solid);
+  box-shadow: var(--shadow);
+}
+
+.session-menu button {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font-size: 14px;
+}
+
+.session-menu button:hover {
+  background: var(--hover-bg);
+}
+
+.session-menu button.danger {
   color: var(--danger);
+}
+
+.session-menu button.danger:hover {
   background: var(--danger-bg);
 }
 
