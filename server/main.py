@@ -89,6 +89,16 @@ def _auth_user(user: UserProfile) -> AuthUser:
     return AuthUser(id=user.id, username=user.username, display_name=user.display_name)
 
 
+def image_failure_message(message: str) -> str:
+    if not message or message == "请求失败":
+        return "图片生成失败，请稍后重试。"
+    if "Server disconnected" in message or "disconnected before sending" in message:
+        return "图片服务连接中断，请稍后重试。"
+    if "502" in message or "503" in message or "504" in message or "Bad Gateway" in message:
+        return "图片服务暂时不可用，请稍后重试。"
+    return f"图片生成失败：{message}"
+
+
 def _normalize_username(username: str) -> str:
     value = username.strip().lower()
     if len(value) < 3:
@@ -466,7 +476,7 @@ def generate_image(session_id: str, payload: GeneratePayload, user: UserProfile 
         assistant_message = store.add_message(
             session_id=session_id,
             role="assistant",
-            content=f"Generation failed: {message}",
+            content=image_failure_message(message),
             image_ids=[],
             meta={"error": message},
         )

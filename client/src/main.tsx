@@ -151,11 +151,21 @@ const api = {
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
       const detail = payload?.detail?.error || payload?.detail || payload?.error || "请求失败";
-      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), payload);
     }
     return payload as T;
   }
 };
+
+class ApiError extends Error {
+  payload: unknown;
+
+  constructor(message: string, payload: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.payload = payload;
+  }
+}
 
 declare global {
   interface Window {
@@ -267,6 +277,25 @@ function isImageRequest(content: string, selectedImageCount: number) {
 
 function shouldUsePreviousImage(content: string) {
   return previousImageIntentRules.some((rule) => rule.test(content));
+}
+
+function apiDetailPayload(err: unknown): Record<string, unknown> | null {
+  if (!(err instanceof ApiError) || !err.payload || typeof err.payload !== "object") return null;
+  const detail = (err.payload as { detail?: unknown }).detail;
+  return detail && typeof detail === "object" ? (detail as Record<string, unknown>) : null;
+}
+
+function imageErrorMessage(err: unknown) {
+  const detail = apiDetailPayload(err);
+  const raw = String(detail?.error || (err instanceof Error ? err.message : "") || "");
+  if (!raw || raw === "请求失败") return "图片生成失败，请稍后重试。";
+  if (raw.includes("Server disconnected") || raw.includes("disconnected before sending")) {
+    return "图片服务连接中断，请稍后重试。";
+  }
+  if (raw.includes("502") || raw.includes("503") || raw.includes("504") || raw.includes("Bad Gateway")) {
+    return "图片服务暂时不可用，请稍后重试。";
+  }
+  return `图片生成失败：${raw}`;
 }
 
 function App() {
@@ -674,7 +703,7 @@ function App() {
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
       const detail = payload?.detail?.error || payload?.detail || payload?.error || "请求失败";
-      throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+      throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), payload);
     }
     const reader = response.body?.getReader();
     if (!reader) throw new Error("浏览器不支持流式响应。");
@@ -1130,15 +1159,20 @@ function App() {
       await refreshSessions();
       markSessionComplete(sessionId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Image generation failed");
+      setError("");
+      const detail = apiDetailPayload(err);
+      const serverAssistantMessage = detail?.assistantMessage as ChatMessage | undefined;
       const failedMessage: ChatMessage = {
-        id: createId(),
+        id: serverAssistantMessage?.id || createId(),
         session_id: sessionId,
         role: "assistant",
-        content: err instanceof Error ? "Image generation failed: " + err.message : "Image generation failed",
+        content: imageErrorMessage(err),
         image_ids: [],
-        created_at: nowIso(),
-        meta: { error: true }
+        created_at: serverAssistantMessage?.created_at || nowIso(),
+        meta: {
+          ...(serverAssistantMessage?.meta || {}),
+          error: detail?.error || (err instanceof Error ? err.message : true)
+        }
       };
       if (activeIdRef.current === sessionId) setMessages([...optimisticMessages, failedMessage]);
       if (!auth?.token && sessionId) saveLocalDetail(sessionId, [...optimisticMessages, failedMessage], images, options);
