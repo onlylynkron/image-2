@@ -1117,7 +1117,7 @@ button {
 
 .composer {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 40px;
+  grid-template-columns: 34px minmax(0, 1fr) 76px 40px;
   align-items: center;
   gap: 6px;
   max-width: 920px;
@@ -1164,15 +1164,36 @@ button {
 }
 
 .upload-button,
-.send-button {
+.send-button,
+.mode-select {
   height: 36px;
+  border-radius: 999px;
+}
+
+.upload-button,
+.send-button {
   display: grid;
   place-items: center;
-  border-radius: 999px;
 }
 
 .upload-button input {
   display: none;
+}
+
+.mode-select {
+  width: 76px;
+  padding: 0 24px 0 12px;
+  border: 1px solid var(--line);
+  background: var(--panel-soft);
+  color: var(--text);
+  font-size: 13px;
+  outline: 0;
+  appearance: auto;
+}
+
+.mode-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .send-button {
@@ -1553,10 +1574,17 @@ button {
   }
 
   .composer {
-    grid-template-columns: 32px minmax(0, 1fr) 38px;
+    grid-template-columns: 32px minmax(0, 1fr) 66px 38px;
     gap: 6px;
     min-height: 54px;
     padding: 6px 7px 6px 12px;
+  }
+
+  .mode-select {
+    width: 66px;
+    padding-left: 9px;
+    padding-right: 18px;
+    font-size: 12px;
   }
 
   .home-state {

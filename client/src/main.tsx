@@ -29,6 +29,7 @@ type ImageSize = "auto" | "1024x1024" | "1536x1024" | "1024x1536";
 type ImageFormat = "png" | "jpeg" | "webp";
 type ImageAspectRatio = "auto" | "1:1" | "21:9" | "16:9" | "3:2" | "4:3";
 type ImageResolution = "1K" | "2K" | "4K";
+type PromptMode = "auto" | "chat" | "image";
 
 interface ImageOptions {
   quality: ImageQuality;
@@ -244,7 +245,7 @@ const forcedImageIntentRules = [
 
 const previousImageIntentRules = [
   new RegExp("(\\u4e0a\\u9762|\\u4e0a\\u4e00\\u5f20|\\u524d\\u9762|\\u521a\\u624d|\\u8fd9\\u5f20|\\u8fd9\\u4e2a|\\u6211\\u4e0a\\u9762).*(\\u56fe\\u7247|\\u56fe\\u50cf|\\u7167\\u7247|\\u56fe)", "i"),
-  new RegExp("(\\u4fee\\u6539|\\u7f16\\u8f91|\\u4fee\\u56fe|\\u5904\\u7406|\\u8c03\\u6574|\\u53bb\\u9664|\\u53bb\\u6389|\\u5220\\u9664|\\u4fee\\u590d|\\u66ff\\u6362|\\u6362).*(\\u4e0a\\u9762|\\u4e0a\\u4e00\\u5f20|\\u524d\\u9762|\\u521a\\u624d|\\u8fd9\\u5f20|\\u8fd9\\u4e2a)", "i")
+  new RegExp("(\\u4fee\\u6539|\\u7f16\\u8f91|\\u4fee\\u56fe|\\u5904\\u7406|\\u8c03\\u6574|\\u53bb\\u9664|\\u53bb\\u6389|\\u5220\\u9664|\\u4fee\\u590d|\\u66ff\\u6362|\\u6362).*(\\u4e0a\\u9762|\\u4e0a\\u4e00\\u5f20|\\u524d\\u9762|\\u521a\\u624d|\\u8fd9\\u5f20|\\u8fd9\\u4e2a).*(\\u56fe\\u7247|\\u56fe\\u50cf|\\u7167\\u7247|\\u56fe)", "i")
 ];
 
 const imageIntentRules = [
@@ -284,6 +285,7 @@ function App() {
   const [messages, setMessages] = React.useState<ChatMessage[]>([]);
   const [images, setImages] = React.useState<ImageAsset[]>([]);
   const [prompt, setPrompt] = React.useState("");
+  const [promptMode, setPromptMode] = React.useState<PromptMode>("auto");
   const [options, setOptions] = React.useState<ImageOptions>(defaultOptions);
   const [selectedImages, setSelectedImages] = React.useState<string[]>([]);
   const [uploading, setUploading] = React.useState(false);
@@ -879,7 +881,8 @@ function App() {
     const trimmedPrompt = prompt.trim();
     const fallbackImageId = !selectedImages.length && shouldUsePreviousImage(trimmedPrompt) ? findLastAvailableImageId() : "";
     const effectiveSelectedCount = selectedImages.length || (fallbackImageId ? 1 : 0);
-    if (isImageRequest(trimmedPrompt, effectiveSelectedCount)) {
+    const shouldGenerate = promptMode === "image" || (promptMode === "auto" && isImageRequest(trimmedPrompt, effectiveSelectedCount));
+    if (shouldGenerate) {
       await generateImage();
       return;
     }
@@ -1035,7 +1038,7 @@ function App() {
     if (!prompt.trim() || isCurrentSessionBusy) return;
     setError("");
     const nextPrompt = prompt.trim();
-    const wantsPreviousImage = shouldUsePreviousImage(nextPrompt);
+    const wantsPreviousImage = promptMode !== "image" && shouldUsePreviousImage(nextPrompt);
     const fallbackImageId = !selectedImages.length && wantsPreviousImage ? findLastAvailableImageId() : "";
     const sourceImageIds = selectedImages.length ? selectedImages : fallbackImageId ? [fallbackImageId] : [];
     if (wantsPreviousImage && !sourceImageIds.length) {
@@ -1329,6 +1332,8 @@ function App() {
                   busy={isCurrentSessionBusy}
                   canStop={canStopCurrentChat}
                   stopMessage={stopCurrentChat}
+                  mode={promptMode}
+                  setMode={setPromptMode}
                   variant="home"
                 />
               </div>
@@ -1420,6 +1425,8 @@ function App() {
             busy={isCurrentSessionBusy}
             canStop={canStopCurrentChat}
             stopMessage={stopCurrentChat}
+            mode={promptMode}
+            setMode={setPromptMode}
           />
         </footer>}
       </main>
@@ -1643,6 +1650,8 @@ function PromptBox({
   uploading,
   busy,
   canStop,
+  mode,
+  setMode,
   variant = "dock"
 }: {
   prompt: string;
@@ -1653,6 +1662,8 @@ function PromptBox({
   uploading: boolean;
   busy: boolean;
   canStop: boolean;
+  mode: PromptMode;
+  setMode: (mode: PromptMode) => void;
   variant?: "home" | "dock";
 }) {
   return (
@@ -1681,6 +1692,17 @@ function PromptBox({
           }}
         />
       </div>
+      <select
+        className="mode-select"
+        value={mode}
+        onChange={(event) => setMode(event.target.value as PromptMode)}
+        disabled={busy && !canStop}
+        title="选择输入模式"
+      >
+        <option value="auto">自动</option>
+        <option value="chat">聊天</option>
+        <option value="image">生图</option>
+      </select>
       <button
         className={"send-button " + (canStop ? "is-stop" : "")}
         disabled={!canStop && (!prompt.trim() || busy)}
