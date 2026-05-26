@@ -92,6 +92,12 @@ interface PublicConfig {
   google_client_id: string;
 }
 
+interface IntentResult {
+  intent: "chat" | "generate" | "edit";
+  use_recent_image: boolean;
+  reason: string;
+}
+
 interface LocalSnapshot {
   sessions: SessionItem[];
   details: Record<string, { session: SessionItem; messages: ChatMessage[]; images: ImageAsset[] }>;
@@ -489,6 +495,27 @@ function App() {
       }
     }
     return "";
+  }
+
+  async function classifyPromptIntent(content: string): Promise<IntentResult> {
+    if (promptMode === "chat") return { intent: "chat", use_recent_image: false, reason: "manual chat" };
+    if (promptMode === "image") return { intent: "generate", use_recent_image: false, reason: "manual image" };
+    try {
+      return await api.json<IntentResult>("/api/intent", {
+        method: "POST",
+        body: JSON.stringify({
+          content,
+          selected_image_count: selectedImages.length,
+          has_recent_image: Boolean(findLastAvailableImageId())
+        })
+      }, auth?.token);
+    } catch {
+      const fallbackImageId = !selectedImages.length && shouldUsePreviousImage(content) ? findLastAvailableImageId() : "";
+      const effectiveSelectedCount = selectedImages.length || (fallbackImageId ? 1 : 0);
+      return isImageRequest(content, effectiveSelectedCount)
+        ? { intent: fallbackImageId || selectedImages.length ? "edit" : "generate", use_recent_image: Boolean(fallbackImageId), reason: "local fallback" }
+        : { intent: "chat", use_recent_image: false, reason: "local fallback" };
+    }
   }
 
   async function loadSession(id: string) {
@@ -908,16 +935,16 @@ function App() {
   async function sendMessage() {
     if (!prompt.trim() || isCurrentSessionBusy) return;
     const trimmedPrompt = prompt.trim();
-    const fallbackImageId = !selectedImages.length && shouldUsePreviousImage(trimmedPrompt) ? findLastAvailableImageId() : "";
-    const effectiveSelectedCount = selectedImages.length || (fallbackImageId ? 1 : 0);
-    const shouldGenerate = promptMode === "image" || (promptMode === "auto" && isImageRequest(trimmedPrompt, effectiveSelectedCount));
-    if (shouldGenerate) {
-      await generateImage();
+    const intent = await classifyPromptIntent(trimmedPrompt);
+    if (intent.intent === "generate" || intent.intent === "edit") {
+      await generateImage(intent.intent);
       return;
     }
     setError("");
     const nextPrompt = trimmedPrompt;
+    const chatImageIds = selectedImages;
     setPrompt("");
+    setSelectedImages([]);
     let optimisticMessages = messages;
     let pendingId = "";
     let sessionId = activeId;
@@ -930,7 +957,7 @@ function App() {
         session_id: sessionId,
         role: "user",
         content: nextPrompt,
-        image_ids: [],
+        image_ids: chatImageIds,
         created_at: nowIso()
       };
       const pendingMessage: ChatMessage = {
@@ -958,7 +985,20 @@ function App() {
         },
         body: JSON.stringify({
           content: nextPrompt,
-          ...(!auth?.token ? { messages: optimisticMessages.filter((message) => !message.meta?.pending) } : {})
+          source_image_ids: chatImageIds,
+          ...(!auth?.token
+            ? {
+                messages: optimisticMessages.filter((message) => !message.meta?.pending),
+                source_images: images
+                  .filter((image) => chatImageIds.includes(image.id))
+                  .map((image) => ({
+                    id: image.id,
+                    filename: image.filename,
+                    original_name: image.original_name,
+                    mime_type: image.mime_type
+                  }))
+              }
+            : {})
         }),
         signal: controller.signal
       });
@@ -1063,14 +1103,14 @@ function App() {
     }
   }
 
-  async function generateImage() {
+  async function generateImage(intent: "generate" | "edit" = "generate") {
     if (!prompt.trim() || isCurrentSessionBusy) return;
     setError("");
     const nextPrompt = prompt.trim();
-    const wantsPreviousImage = promptMode !== "image" && shouldUsePreviousImage(nextPrompt);
+    const wantsPreviousImage = intent === "edit" && !selectedImages.length && shouldUsePreviousImage(nextPrompt);
     const fallbackImageId = !selectedImages.length && wantsPreviousImage ? findLastAvailableImageId() : "";
-    const sourceImageIds = selectedImages.length ? selectedImages : fallbackImageId ? [fallbackImageId] : [];
-    if (wantsPreviousImage && !sourceImageIds.length) {
+    const sourceImageIds = intent === "edit" ? (selectedImages.length ? selectedImages : fallbackImageId ? [fallbackImageId] : []) : [];
+    if (intent === "edit" && !sourceImageIds.length) {
       setError("\u8bf7\u5148\u4e0a\u4f20\u6216\u751f\u6210\u4e00\u5f20\u56fe\u7247\uff0c\u518d\u8ba9\u6211\u5904\u7406\u5b83\u3002");
       return;
     }

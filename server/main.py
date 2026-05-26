@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import secrets
 from pathlib import Path
 from typing import Iterator
@@ -26,6 +27,8 @@ from .models import (
     GuestChatPayload,
     GuestGeneratePayload,
     ImageAsset,
+    IntentPayload,
+    IntentResult,
     ServerConfigPatch,
     SessionDetail,
     SyncPayload,
@@ -99,6 +102,43 @@ def image_failure_message(message: str) -> str:
     return f"图片生成失败：{message}"
 
 
+CHAT_IMAGE_PATTERNS = [
+    re.compile(pattern, re.I)
+    for pattern in [
+        r"(解释|说明|分析|描述|看看|识别|理解|评价|点评|这是什么|有什么|哪里|为什么|怎么).*?(图|图片|图像|照片|画面)",
+        r"(图|图片|图像|照片|画面).*?(解释|说明|分析|描述|识别|理解|评价|点评|这是什么|有什么|哪里|为什么|怎么)",
+    ]
+]
+EDIT_IMAGE_PATTERNS = [
+    re.compile(pattern, re.I)
+    for pattern in [
+        r"(修改|编辑|修图|处理|调整|去除|去掉|删除|修复|替换|换|改一下|重绘).*(上面的图|上面图片|上一张图|上一张图片|前面的图|刚才的图|这张图|这张图片|这个图|这个图片|图片|图像|照片|画面)",
+        r"(上面|上一张|前面|刚才|这张|这个).*(图|图片|图像|照片|画面).*(修改|编辑|修图|处理|调整|去除|去掉|删除|修复|替换|换|改一下|重绘)",
+    ]
+]
+GENERATE_IMAGE_PATTERNS = [
+    re.compile(pattern, re.I)
+    for pattern in [
+        r"(生成|生图|出图|画|绘制|渲染|制作|做|创建).*(图|图片|图像|照片|海报|封面|logo|头像|壁纸|漫画|插画|场景|角色)",
+        r"(图|图片|图像|照片|海报|封面|logo|头像|壁纸|漫画|插画|场景|角色).*(生成|生图|出图|画|绘制|渲染|制作|做|创建)",
+        r"(漫画版|漫画形式|漫画风|插画版|海报版|封面图|产品图|效果图|设计图)",
+    ]
+]
+
+
+def classify_intent_rules(content: str, selected_image_count: int, has_recent_image: bool) -> IntentResult | None:
+    text = content.strip()
+    if not text:
+        return IntentResult(intent="chat", reason="empty")
+    if any(rule.search(text) for rule in CHAT_IMAGE_PATTERNS):
+        return IntentResult(intent="chat", reason="image understanding")
+    if (selected_image_count or has_recent_image) and any(rule.search(text) for rule in EDIT_IMAGE_PATTERNS):
+        return IntentResult(intent="edit", use_recent_image=selected_image_count == 0, reason="image edit")
+    if any(rule.search(text) for rule in GENERATE_IMAGE_PATTERNS):
+        return IntentResult(intent="generate", reason="image generation")
+    return None
+
+
 def _normalize_username(username: str) -> str:
     value = username.strip().lower()
     if len(value) < 3:
@@ -130,6 +170,22 @@ def get_config():
 @app.put("/api/config")
 def update_config(patch: ServerConfigPatch):
     return store.update_config(patch)
+
+
+@app.post("/api/intent", response_model=IntentResult)
+def classify_intent(payload: IntentPayload):
+    content = payload.content.strip()
+    rule_result = classify_intent_rules(content, payload.selected_image_count, payload.has_recent_image)
+    if rule_result:
+        return rule_result
+
+    runtime_config = store.runtime_config()
+    if not runtime_config.api_key:
+        return IntentResult(intent="chat", reason="no api key for model classification")
+    try:
+        return request_intent_classification(runtime_config, payload)
+    except Exception as exc:
+        return IntentResult(intent="chat", reason=f"classification fallback: {exc}")
 
 
 @app.post("/api/auth/register", response_model=AuthResponse, status_code=201)
@@ -254,6 +310,7 @@ def chat(session_id: str, payload: dict, user: UserProfile = Depends(require_use
     content = str((payload or {}).get("content") or "").strip()
     if not content:
         raise HTTPException(status_code=400, detail="Please enter a message.")
+    image_ids = [str(item) for item in (payload or {}).get("source_image_ids") or []]
 
     runtime_config = store.runtime_config()
     if not runtime_config.api_key:
@@ -263,7 +320,7 @@ def chat(session_id: str, payload: dict, user: UserProfile = Depends(require_use
         session_id=session_id,
         role="user",
         content=content,
-        image_ids=[],
+        image_ids=image_ids,
     )
 
     try:
@@ -274,7 +331,8 @@ def chat(session_id: str, payload: dict, user: UserProfile = Depends(require_use
 
         refreshed = store.get_session(session_id, user.id)
         prompt_context = build_prompt_context(refreshed["session"], refreshed["messages"])
-        answer = request_chat_response(runtime_config, prompt_context, content)
+        source_images = store.find_images(image_ids)
+        answer = request_chat_response(runtime_config, prompt_context, content, source_images, store.image_path)
         assistant_message = store.add_message(
             session_id=session_id,
             role="assistant",
@@ -315,6 +373,7 @@ def chat_stream(session_id: str, payload: dict, user: UserProfile = Depends(requ
     content = str((payload or {}).get("content") or "").strip()
     if not content:
         raise HTTPException(status_code=400, detail="Please enter a message.")
+    image_ids = [str(item) for item in (payload or {}).get("source_image_ids") or []]
 
     runtime_config = store.runtime_config()
     if not runtime_config.api_key:
@@ -324,7 +383,7 @@ def chat_stream(session_id: str, payload: dict, user: UserProfile = Depends(requ
         session_id=session_id,
         role="user",
         content=content,
-        image_ids=[],
+        image_ids=image_ids,
     )
 
     latest = store.get_session(session_id, user.id)
@@ -334,13 +393,14 @@ def chat_stream(session_id: str, payload: dict, user: UserProfile = Depends(requ
 
     refreshed = store.get_session(session_id, user.id)
     prompt_context = build_prompt_context(refreshed["session"], refreshed["messages"])
+    source_images = store.find_images(image_ids)
 
     def events():
         yield sse_event("start", {"userMessage": user_message.model_dump()})
         chunks: list[str] = []
         completed = False
         try:
-            for delta in request_chat_response_stream(runtime_config, prompt_context, content):
+            for delta in request_chat_response_stream(runtime_config, prompt_context, content, source_images, store.image_path):
                 chunks.append(delta)
                 yield sse_event("delta", {"text": delta})
             answer = "".join(chunks).strip() or "OK."
@@ -507,7 +567,20 @@ def guest_chat(payload: GuestChatPayload):
         updated_at=now_iso(),
     )
     prompt_context = build_prompt_context(session, payload.messages)
-    answer = request_chat_response(runtime_config, prompt_context, content)
+    source_images = [
+        ImageAsset(
+            id=image.id,
+            session_id="guest",
+            filename=image.filename,
+            original_name=image.original_name,
+            mime_type=image.mime_type,
+            kind="upload",
+            url=f"/assets/{image.filename}",
+            created_at=now_iso(),
+        )
+        for image in payload.source_images
+    ]
+    answer = request_chat_response(runtime_config, prompt_context, content, source_images, store.image_path)
     return {"content": answer, "meta": {"promptContext": prompt_context}}
 
 
@@ -528,12 +601,25 @@ def guest_chat_stream(payload: GuestChatPayload):
         updated_at=now_iso(),
     )
     prompt_context = build_prompt_context(session, payload.messages)
+    source_images = [
+        ImageAsset(
+            id=image.id,
+            session_id="guest",
+            filename=image.filename,
+            original_name=image.original_name,
+            mime_type=image.mime_type,
+            kind="upload",
+            url=f"/assets/{image.filename}",
+            created_at=now_iso(),
+        )
+        for image in payload.source_images
+    ]
 
     def events():
         yield sse_event("start", {"meta": {"promptContext": prompt_context}})
         chunks: list[str] = []
         try:
-            for delta in request_chat_response_stream(runtime_config, prompt_context, content):
+            for delta in request_chat_response_stream(runtime_config, prompt_context, content, source_images, store.image_path):
                 chunks.append(delta)
                 yield sse_event("delta", {"text": delta})
             yield sse_event("done", {"content": "".join(chunks).strip() or "OK.", "meta": {"promptContext": prompt_context}})
@@ -678,7 +764,27 @@ def sync_local_history(payload: SyncPayload, user: UserProfile = Depends(require
     return {"ok": True, "imported": len(imported), "sessions": store.list_sessions(user.id)}
 
 
-def request_chat_response(runtime_config, prompt_context: str, content: str) -> str:
+def image_input_parts(source_images: list[ImageAsset], image_path_for) -> list[dict]:
+    parts = []
+    for image in source_images[:4]:
+        path = Path(image_path_for(image.filename))
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        parts.append({
+            "type": "input_image",
+            "image_url": f"data:{image.mime_type};base64,{encoded}",
+        })
+    return parts
+
+
+def chat_user_content(prompt_context: str, content: str, source_images: list[ImageAsset], image_path_for):
+    text = f"Context:\n{prompt_context}\n\nUser message:\n{content}"
+    image_parts = image_input_parts(source_images, image_path_for) if source_images else []
+    if not image_parts:
+        return text
+    return [{"type": "input_text", "text": text}, *image_parts]
+
+
+def request_chat_response(runtime_config, prompt_context: str, content: str, source_images: list[ImageAsset] | None = None, image_path_for=None) -> str:
     base_url = (runtime_config.base_url or "https://api.openai.com/v1").rstrip("/")
     headers = {"Authorization": f"Bearer {runtime_config.api_key}"}
     payload = {
@@ -694,7 +800,7 @@ def request_chat_response(runtime_config, prompt_context: str, content: str) -> 
             },
             {
                 "role": "user",
-                "content": f"Context:\n{prompt_context}\n\nUser message:\n{content}",
+                "content": chat_user_content(prompt_context, content, source_images or [], image_path_for),
             },
         ],
     }
@@ -705,11 +811,60 @@ def request_chat_response(runtime_config, prompt_context: str, content: str) -> 
     return text or "OK."
 
 
+def request_intent_classification(runtime_config, payload: IntentPayload) -> IntentResult:
+    base_url = (runtime_config.base_url or "https://api.openai.com/v1").rstrip("/")
+    headers = {"Authorization": f"Bearer {runtime_config.api_key}"}
+    request_payload = {
+        "model": runtime_config.text_model,
+        "input": [
+            {
+                "role": "system",
+                "content": (
+                    "Classify the user's intent for an image studio. "
+                    "Return only JSON with keys intent, use_recent_image, reason. "
+                    "intent must be one of chat, generate, edit. "
+                    "Use edit only when the user wants to modify an existing image. "
+                    "Use generate when the user wants a new image from text, even if they say this prompt or above text. "
+                    "Use chat when the user wants explanation, analysis, understanding, or normal conversation."
+                ),
+            },
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "message": payload.content,
+                        "selected_image_count": payload.selected_image_count,
+                        "has_recent_image": payload.has_recent_image,
+                    },
+                    ensure_ascii=False,
+                ),
+            },
+        ],
+    }
+    with httpx.Client(timeout=45) as client:
+        response = client.post(f"{base_url}/responses", json=request_payload, headers=headers)
+        response.raise_for_status()
+    text = extract_response_text(response.json())
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        match = re.search(r"\{[\s\S]*\}", text)
+        data = json.loads(match.group(0)) if match else {}
+    intent = data.get("intent")
+    if intent not in {"chat", "generate", "edit"}:
+        return IntentResult(intent="chat", reason="invalid model classification")
+    return IntentResult(
+        intent=intent,
+        use_recent_image=bool(data.get("use_recent_image")) and intent == "edit",
+        reason=str(data.get("reason") or "model classification"),
+    )
+
+
 def sse_event(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
-def request_chat_response_stream(runtime_config, prompt_context: str, content: str) -> Iterator[str]:
+def request_chat_response_stream(runtime_config, prompt_context: str, content: str, source_images: list[ImageAsset] | None = None, image_path_for=None) -> Iterator[str]:
     base_url = (runtime_config.base_url or "https://api.openai.com/v1").rstrip("/")
     headers = {"Authorization": f"Bearer {runtime_config.api_key}"}
     payload = {
@@ -726,7 +881,7 @@ def request_chat_response_stream(runtime_config, prompt_context: str, content: s
             },
             {
                 "role": "user",
-                "content": f"Context:\n{prompt_context}\n\nUser message:\n{content}",
+                "content": chat_user_content(prompt_context, content, source_images or [], image_path_for),
             },
         ],
     }

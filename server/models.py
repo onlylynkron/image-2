@@ -154,6 +154,19 @@ class GuestChatPayload(BaseModel):
     content: str
     messages: list[ChatMessage] = Field(default_factory=list)
     summary: str = ""
+    source_images: list[GuestImageSource] = Field(default_factory=list)
+
+
+class IntentPayload(BaseModel):
+    content: str
+    selected_image_count: int = 0
+    has_recent_image: bool = False
+
+
+class IntentResult(BaseModel):
+    intent: Literal["chat", "generate", "edit"]
+    use_recent_image: bool = False
+    reason: str = ""
 
 
 class SyncPayload(BaseModel):

@@ -41,7 +41,7 @@ cp .env.example .env
 ```env
 PORT=8787
 OPENAI_API_KEY=your_api_key
-OPENAI_BASE_URL=https://utoken.club/v1
+OPENAI_BASE_URL=your_base_url
 GPT_IMAGE_MODEL=gpt-image-2
 OPENAI_TEXT_MODEL=gpt-5.4
 ```
@@ -146,19 +146,19 @@ python -m server.run
 
 配置文件为 `.env`，不要提交真实 `.env` 到 Git。
 
-| 变量 | 说明 | 示例 |
-| --- | --- | --- |
-| `PORT` | Web/API 服务端口 | `8787` |
-| `OPENAI_API_KEY` | API 密钥 | `sk-...` |
-| `OPENAI_BASE_URL` | API Base URL | `https://utoken.club/v1` |
-| `OPENAI_HTTP_TRUST_ENV` | 图片请求是否读取系统代理环境变量，默认关闭 | `false` |
-| `GPT_IMAGE_MODEL` | 图片模型 | `gpt-image-2` |
-| `OPENAI_TEXT_MODEL` | 文本对话模型 | `gpt-5.4` |
-| `GOOGLE_CLIENT_ID` | Google 登录 Client ID，可为空 | `xxx.apps.googleusercontent.com` |
-| `DATA_DIR` | 本地数据目录 | `./data` |
-| `DATABASE_URL` | 本地开发时连接 PostgreSQL；为空则使用 JSON 文件 | `postgresql://postgres:password@localhost:5432/image2` |
-| `HISTORY_COMPRESSION_THRESHOLD` | 历史压缩阈值 | `12000` |
-| `HISTORY_KEEP_RECENT` | 压缩后保留最近消息数 | `10` |
+| 变量                              | 说明                               | 示例                                                     |
+|---------------------------------|----------------------------------|--------------------------------------------------------|
+| `PORT`                          | Web/API 服务端口                     | `8787`                                                 |
+| `OPENAI_API_KEY`                | API 密钥                           | `sk-...`                                               |
+| `OPENAI_BASE_URL`               | API Base URL                     | `https://utoken.club/v1`                               |
+| `OPENAI_HTTP_TRUST_ENV`         | 图片请求是否读取系统代理环境变量，默认关闭            | `false`                                                |
+| `GPT_IMAGE_MODEL`               | 图片模型                             | `gpt-image-2`                                          |
+| `OPENAI_TEXT_MODEL`             | 文本对话模型                           | `gpt-5.4`                                              |
+| `GOOGLE_CLIENT_ID`              | Google 登录 Client ID，可为空          | `xxx.apps.googleusercontent.com`                       |
+| `DATA_DIR`                      | 本地数据目录                           | `./data`                                               |
+| `DATABASE_URL`                  | 本地开发时连接 PostgreSQL；为空则使用 JSON 文件 | `postgresql://postgres:password@localhost:5432/image2` |
+| `HISTORY_COMPRESSION_THRESHOLD` | 历史压缩阈值                           | `12000`                                                |
+| `HISTORY_KEEP_RECENT`           | 压缩后保留最近消息数                       | `10`                                                   |
 
 说明：
 
